@@ -1,7 +1,7 @@
 {
   "owner": "yoroi-classic",
   "reviewer": "",
-  "workspace": "review-bot/.runtime/repos",
+  "workspace": "repos",
   "worktreeRoot": "review-bot/.runtime/worktrees",
   "runtimeRoot": "review-bot/.runtime",
   "logRoot": "review-bot/logs",
@@ -14,6 +14,9 @@
   "worktreeRetain": 8,
   "localChecks": [],
   "repos": {
+    "clanker": {
+      "path": "."
+    },
     "yoroi": {
       "workdir": "mobile"
     }

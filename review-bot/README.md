@@ -7,9 +7,10 @@ default owner is `yoroi-classic`, but `REVIEW_BOT_OWNER=<org>` or
 The bot polls for open pull requests where the configured reviewer is requested
 for review. By default the reviewer is the authenticated `gh` user; set
 `REVIEW_BOT_REVIEWER=<login>` or `reviewer` in `config.json` to override it.
-It clones and updates repositories for the configured organization inside the
-configured workspace, skips PR heads it has already reviewed, generates review
-agent prompts, and provides a local evidence harness. The harness reads GitHub
+It updates repositories for the configured organization inside the configured
+workspace, cloning a missing repository when necessary, skips PR heads it has
+already reviewed, generates review agent prompts, and provides a local evidence
+harness. The harness reads GitHub
 CI/check status instead of re-running CI jobs locally, runs only local
 review-specific scans, and writes a report for the review agent. A semantic
 review agent posts findings or submits an approving PR review whose body says:
@@ -38,8 +39,11 @@ conversion near token or ADA amounts.
 
 By default, `config.json` resolves relative paths against the `clanker`
 checkout: logs and state live under `review-bot/`, runtime files live under
-`review-bot/.runtime/`, and managed org repository clones live under
-`review-bot/.runtime/repos/`.
+`review-bot/.runtime/`, and organization base checkouts are the submodules in
+top-level `repos/`. PR worktrees remain disposable runtime data under
+`review-bot/.runtime/worktrees/`. A repository can set `repos.<name>.path` in
+the config when its base checkout is elsewhere; `clanker` maps to the top-level
+checkout itself.
 
 Refresh the review queue and generate prompts once:
 

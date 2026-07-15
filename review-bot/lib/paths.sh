@@ -82,6 +82,21 @@ review_bot_env_path() {
   review_bot_abs_path "$base" "$value" "$default_value"
 }
 
+review_bot_repo_dir() {
+  local repo_root="$1"
+  local workspace="$2"
+  local config="$3"
+  local repo="$4"
+  local configured_path
+
+  configured_path="$(jq -r --arg repo "$repo" '.repos[$repo].path // empty' "$config")"
+  if [[ -n "$configured_path" ]]; then
+    review_bot_abs_path "$repo_root" "$configured_path" "$workspace/$repo"
+  else
+    printf '%s/%s\n' "$workspace" "$repo"
+  fi
+}
+
 review_bot_reviewer() {
   local config="$1"
   local reviewer

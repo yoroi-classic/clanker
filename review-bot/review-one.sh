@@ -31,7 +31,7 @@ require timeout
 
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
-WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONFIG" '.workspace' 'review-bot/.runtime/repos')"
+WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONFIG" '.workspace' 'repos')"
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" "$CONFIG" '.runtimeRoot' 'review-bot/.runtime')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
@@ -166,7 +166,7 @@ if [[ "$FORCE" != "1" && "$LAST_REVIEWED" == "$HEAD_SHA" && "$LAST_BASE_SHA" == 
 fi
 
 SHORT_SHA="${HEAD_SHA:0:12}"
-REPO_DIR="$WORKSPACE/$REPO"
+REPO_DIR="$(review_bot_repo_dir "$REPO_ROOT" "$WORKSPACE" "$CONFIG" "$REPO")"
 WORKTREE="$WORKTREE_ROOT/$REPO/pr-$PR_NUMBER-$SHORT_SHA"
 WORKTREE_LEASE_FILE="$WORKTREE_LEASE_DIR/pr-$PR_NUMBER-$SHORT_SHA.lease"
 
@@ -180,8 +180,8 @@ trap cleanup_worktree_lease EXIT
 
 {
   flock 6
-  if [[ ! -d "$REPO_DIR/.git" ]]; then
-    mkdir -p "$WORKSPACE"
+  if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    mkdir -p "$(dirname "$REPO_DIR")"
     git clone "git@github.com:$OWNER/$REPO.git" "$REPO_DIR"
   fi
 

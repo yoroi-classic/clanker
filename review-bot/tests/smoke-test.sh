@@ -526,10 +526,15 @@ FAKE_GH_USER
 {
   "owner": "configured-org",
   "reviewer": "",
-  "workspace": "review-bot/.runtime/repos",
+  "workspace": "repos",
   "runtimeRoot": "review-bot/.runtime",
   "logRoot": "review-bot/logs",
-  "stateFile": "review-bot/state/reviews.json"
+  "stateFile": "review-bot/state/reviews.json",
+  "repos": {
+    "clanker": {
+      "path": "."
+    }
+  }
 }
 JSON
 
@@ -537,8 +542,16 @@ JSON
   source "$BOT_DIR/lib/paths.sh"
 
   resolved="$(review_bot_env_path "$repo_root" "" "$config" '.workspace' 'unused')"
-  [[ "$resolved" == "$repo_root/review-bot/.runtime/repos" ]] ||
+  [[ "$resolved" == "$repo_root/repos" ]] ||
     fail "relative workspace should resolve under repo root, got $resolved"
+
+  resolved="$(review_bot_repo_dir "$repo_root" "$repo_root/repos" "$config" 'clanker')"
+  [[ "$resolved" == "$repo_root" ]] ||
+    fail "configured repo path should resolve under repo root, got $resolved"
+
+  resolved="$(review_bot_repo_dir "$repo_root" "$repo_root/repos" "$config" 'sample')"
+  [[ "$resolved" == "$repo_root/repos/sample" ]] ||
+    fail "unconfigured repo should resolve under workspace, got $resolved"
 
   resolved="$(review_bot_env_path "$repo_root" "$TMP_ROOT/external-repos" "$config" '.workspace' 'unused')"
   [[ "$resolved" == "$TMP_ROOT/external-repos" ]] ||
