@@ -21,6 +21,9 @@ GitHub organization.
   commit/branch for every part of the change.
 - Preserve unrelated work in the superproject and every submodule. Before broad
   operations, inspect `git status` at the top level and in affected submodules.
+- Generated bot files belong inside the owning bot's runtime workspace, such as
+  `coding-bot/.runtime/` or `review-bot/.runtime/`, so the bot can safely delete
+  its own scratch files.
 - `.gitmodules` tracks each repository's current default branch. Branch creation
   or default-branch migration on GitHub requires explicit authorization.
 - Use `git submodule update --init --recursive` to materialize pinned checkouts.
@@ -29,6 +32,13 @@ GitHub organization.
 
 ## Coding Standards
 
+- Shared agent standards live in top-level `standards/`. Keep durable operating
+  rules and recurring gotchas there so `coding-bot` and `review-bot` consume
+  the same guidance.
+- Bot improvements are regular `clanker` work. If `coding-bot` or `review-bot`
+  needs better prompts, standards, runbooks, scripts, or docs, create or use an
+  issue and publish a suggestion PR instead of changing runtime behavior
+  silently.
 - Keep changes local to the requested behavior and preserve each repository's
   package-manager, language, generated-file, migration, and schema workflows.
 - Do not introduce a new toolchain or broad refactor for a narrow change.
@@ -44,6 +54,7 @@ GitHub organization.
 
 ## Review Bot Operations
 
+- The review bot consumes shared review standards from `standards/review.md`.
 - The review bot lives in `review-bot/`. Its base checkouts default to the
   top-level `repos/` submodules; `clanker` itself maps to the superproject root.
   Override with `REVIEW_BOT_WORKSPACE=<path>` when appropriate.
@@ -77,6 +88,8 @@ GitHub organization.
 
 ## Review Standards
 
+- Durable review standards belong in `standards/review.md`; this section is the
+  high-level operating summary.
 - Treat every `yoroi-classic` repository as blockchain wallet code. Be pedantic
   around private keys, mnemonics, passphrases, signing, address derivation,
   wallet storage, transaction construction, fees, token amounts, network IDs,

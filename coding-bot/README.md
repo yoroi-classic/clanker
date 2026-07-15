@@ -1,0 +1,49 @@
+# Coding Bot
+
+`coding-bot/` is the reusable operating runtime for coding-agent sessions in the
+`yoroi-classic` organization. It follows the shared standards in top-level
+`standards/` and adds the queue/startup routines needed to begin a session.
+
+Start a new session by rendering the current bootstrap:
+
+```sh
+./coding-bot/bin/start.sh
+```
+
+Render a worker-pool scale plan:
+
+```sh
+./coding-bot/bin/worker-plan.sh 4 2
+```
+
+You can also include a worker target in the startup output:
+
+```sh
+CODING_BOT_WORKERS=4 CODING_BOT_CURRENT_WORKERS=2 ./coding-bot/bin/start.sh
+```
+
+The launcher prints the static operating guidance and, when `gh` is available,
+live assigned issues and authored pull requests. The live queue must always win
+over stale chat history.
+
+Generated scratch files belong under `coding-bot/.runtime/` by default. Override
+that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
+bot-owned workspace. Bots may delete generated files in their runtime workspace.
+
+When a session discovers a durable improvement to coding-bot behavior, prompts,
+runbooks, or shared standards, open or use a `clanker` issue and publish the
+change as a normal suggestion PR.
+
+## Layout
+
+- `SKILL.md` is the primary instruction file for a coding agent.
+- `runbooks/` contains task-specific operating procedures.
+- `bin/start.sh` renders a session bootstrap with live GitHub queue context.
+- `bin/worker-plan.sh` renders scale-up/scale-down guidance for a target worker
+  count.
+- `.runtime/` is the ignored workspace for generated prompts, review bodies,
+  scratch files, and temporary queues.
+
+Keep this directory small and operational. Runtime state, temporary clones,
+review queues, logs, and generated prompts belong under existing runtime
+directories such as `review-bot/.runtime/`, not here.

@@ -114,6 +114,13 @@ Run the local smoke test:
 The smoke test uses temporary local git repositories and a mocked `gh` command.
 It does not post to GitHub.
 
+## Self-Improvement
+
+When a review pass identifies a durable improvement to review-bot behavior,
+prompts, scans, state handling, or shared standards, track it with a `clanker`
+issue and publish the update as a normal suggestion PR. Do not silently mutate
+review-bot runtime behavior outside the reviewed branch.
+
 ## Scheduling
 
 For continuous operation, run `review-bot/watch.sh` from a terminal, or use the
@@ -124,7 +131,8 @@ The watcher does not perform code review or post to GitHub. It writes the
 pending review queue to `review-bot/.runtime/queue.jsonl` and generated
 subagent prompts to `review-bot/.runtime/prompts/`. A review agent consumes
 those prompts, runs the harness, inspects the code, posts the GitHub review, and
-records completion with `review-bot/record-review.sh`.
+records completion with `review-bot/record-review.sh`. Generated prompts embed
+the shared review standards from `standards/review.md`.
 
 Each optional local review-specific check is capped by `checkTimeoutSeconds` in
 `config.json`, or by `REVIEW_BOT_CHECK_TIMEOUT_SECONDS` for a single run.
