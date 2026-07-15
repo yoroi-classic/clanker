@@ -88,7 +88,7 @@ for row in "${rows[@]}"; do
     continue
   fi
 
-  jq -n \
+  jq -c -n \
     --arg owner "$OWNER" \
     --arg repo "$repo" \
     --argjson number "$number" \

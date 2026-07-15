@@ -76,7 +76,7 @@ poll_once() {
       mv "$prompt_tmp" "$prompt_file"
     fi
 
-    jq --arg prompt "$prompt_file" '. + {prompt:$prompt}' <<<"$item" >>"$queue_tmp"
+    jq -c --arg prompt "$prompt_file" '. + {prompt:$prompt}' <<<"$item" >>"$queue_tmp"
     printf '%s review-bot: prompt ready for %s/%s#%s at %s: %s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$owner" "$repo" "$number" "$head_sha" "$prompt_file"
     count="$((count + 1))"
