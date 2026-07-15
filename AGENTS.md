@@ -23,8 +23,20 @@ the configured GitHub organization.
 - The bot must review only open PRs where the configured reviewer is a requested
   reviewer. Do not use GitHub assignees as review eligibility. Skip
   self-authored PRs unless explicitly instructed otherwise.
-- Clean bot runs must submit an approving PR review whose body includes
-  `No issues found for <sha>.` Runs with findings must not approve.
+- The shell scripts are prompt-generation and local evidence harnesses. Do not
+  treat green checks as code review. Use `./review-bot/agent-prompt.sh <repo> <pr>`
+  to prepare a semantic review subagent prompt.
+- Use `./review-bot/list-queue.sh` to get the current review-requested queue.
+  The orchestrator should assign queue items to review agents and track which
+  head SHA each agent reviewed.
+- The watcher only discovers pending review work and writes prompt files under
+  `review-bot/.runtime/prompts/`; it must not run code checks or post reviews.
+- Review agents drive the process: consume a generated prompt, use GitHub CI as
+  the build/test signal, run the local evidence harness, inspect the diff/files
+  semantically, post findings or approval, then call
+  `./review-bot/record-review.sh` for the reviewed head/base.
+- Clean semantic review runs must submit an approving PR review whose body
+  includes `No issues found for <sha>.` Runs with findings must not approve.
 - `review-bot/logs/` and `review-bot/state/` are local runtime data and are
   intentionally ignored by git.
 
@@ -34,9 +46,10 @@ the configured GitHub organization.
   pedantic around private keys, mnemonics, passphrases, signing flows, address
   derivation, wallet storage, transaction construction, fees, token amounts,
   network IDs, and protocol parameters.
-- Do not rely on CI alone. For dependency bumps, inspect direct and transitive
-  changes, lockfile movement, build tooling impact, browser/mobile packaging,
-  and runtime compatibility.
+- Do not duplicate work CI already does. Use CI results as evidence, then do the
+  semantic review CI cannot do. For dependency bumps, inspect direct and
+  transitive changes, lockfile movement, build tooling impact, browser/mobile
+  packaging, and runtime compatibility.
 - For frontend and extension code, scrutinize XSS surfaces, `eval` or dynamic
   code loading, `dangerouslySetInnerHTML`, CSP changes, extension permissions,
   unsafe URL handling, and message-passing trust boundaries.

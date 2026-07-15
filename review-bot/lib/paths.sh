@@ -41,17 +41,6 @@ review_bot_abs_path() {
   fi
 }
 
-review_bot_config_path() {
-  local config="$1"
-  local base="$2"
-  local jq_filter="$3"
-  local default_value="$4"
-  local value
-
-  value="$(jq -r "$jq_filter // empty" "$config")"
-  review_bot_abs_path "$base" "$value" "$default_value"
-}
-
 review_bot_config_value() {
   local config="$1"
   local jq_filter="$2"
@@ -109,4 +98,65 @@ review_bot_reviewer() {
   fi
 
   gh api user --jq '.login'
+}
+
+review_bot_pid_running() {
+  local pid="${1:-}"
+
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+review_bot_watch_command_matches() {
+  local command="$1"
+  local watch_script="$2"
+
+  case "$command" in
+    "$watch_script" | "bash $watch_script" | "/bin/bash $watch_script")
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+review_bot_pid_is_watch() {
+  local pid="${1:-}"
+  local watch_script="$2"
+  local command
+
+  review_bot_pid_running "$pid" || return 1
+  command="$(ps -p "$pid" -o args= 2>/dev/null | sed -E 's/^[[:space:]]+//')"
+  review_bot_watch_command_matches "$command" "$watch_script"
+}
+
+review_bot_find_watch_pid() {
+  local watch_script="$1"
+
+  command -v ps >/dev/null 2>&1 || return 1
+  ps -eo pid=,args= 2>/dev/null | awk -v script="$watch_script" '
+    {
+      pid = $1
+      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
+      if ($0 == script || $0 == "bash " script || $0 == "/bin/bash " script) {
+        print pid
+        exit
+      }
+    }
+  '
+}
+
+review_bot_terminate_tree() {
+  local root_pid="${1:-}"
+  local child
+
+  review_bot_pid_running "$root_pid" || return 0
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r child; do
+      [[ -n "$child" ]] || continue
+      review_bot_terminate_tree "$child"
+    done < <(pgrep -P "$root_pid" 2>/dev/null || true)
+  fi
+
+  kill "$root_pid" >/dev/null 2>&1 || true
 }

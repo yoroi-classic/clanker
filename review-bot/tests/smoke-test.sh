@@ -53,17 +53,23 @@ test_pedantic_diff_check() {
   init_repo "$repo"
   printf 'export const ok = 1;\n' >"$repo/wallet.ts"
   commit_all "$repo" "base"
-  base="$(git -C "$repo" rev-parse HEAD)"
-
-  {
-    printf 'console.error("wrong password", err);\n'
-    printf 'console.log("mnemonic", userMnemonic);\n'
-    printf 'localStorage.setItem("seed", seedPhrase);\n'
-    printf 'const fee = Number(lovelaceAmount);\n'
-    printf 'dangerouslySetInnerHTML={{__html: html}};\n'
-  } >>"$repo/wallet.ts"
-  printf '{"permissions":["<all_urls>"]}\n' >"$repo/manifest.json"
-  commit_all "$repo" "head"
+	  base="$(git -C "$repo" rev-parse HEAD)"
+	
+	  mkdir -p "$repo/docs"
+	  {
+	    printf 'console.error("wrong password", err);\n'
+	    printf 'console.log("mnemonic", userMnemonic);\n'
+	    printf 'console.log({\n'
+	    printf '  mnemonic: userMnemonic,\n'
+	    printf '});\n'
+	    printf 'localStorage.setItem("seed", seedPhrase);\n'
+	    printf 'const fee = Number(lovelaceAmount);\n'
+	    printf 'const assetQuantity = tokenAmount.toNumber(lovelaceAmount);\n'
+	    printf 'dangerouslySetInnerHTML={{__html: html}};\n'
+	  } >>"$repo/wallet.ts"
+	  printf 'const mnemonic = "test test test test test test test test test test test junk";\n' >"$repo/docs/security.md"
+	  printf '{"permissions":["<all_urls>"]}\n' >"$repo/manifest.json"
+	  commit_all "$repo" "head"
   head="$(git -C "$repo" rev-parse HEAD)"
 
   set +e
@@ -77,11 +83,12 @@ test_pedantic_diff_check() {
   [[ "$rc" -eq 1 ]] || fail "pedantic diff check should fail on wallet hazards, got $rc"
   assert_contains "$output" "possible sensitive wallet material in logging or telemetry"
   assert_contains "$output" "secret material written to unsafe storage, clipboard, or URL surface"
-  assert_contains "$output" "plain numeric conversion near monetary value"
-  assert_contains "$output" "raw HTML injection surface added"
-  assert_contains "$output" "extension permission or CSP surface expanded"
-  assert_not_contains "$output" "wrong password"
-}
+	  assert_contains "$output" "plain numeric conversion near monetary value"
+	  assert_contains "$output" "raw HTML injection surface added"
+	  assert_contains "$output" "extension permission or CSP surface expanded"
+	  assert_contains "$output" "hardcoded wallet secret material added"
+	  assert_not_contains "$output" "wrong password"
+	}
 
 test_pedantic_diff_check_ignores_low_signal_paths() {
   local repo="$TMP_ROOT/pedantic-skip"
@@ -95,10 +102,10 @@ test_pedantic_diff_check_ignores_low_signal_paths() {
   commit_all "$repo" "base"
   base="$(git -C "$repo" rev-parse HEAD)"
 
-  mkdir -p "$repo/docs" "$repo/tests/fixtures"
-  printf 'console.log(privateKey)\n' >"$repo/docs/example.md"
-  printf '{"privateKey":"not-real"}\n' >"$repo/package-lock.json"
-  printf 'const mnemonic = "test test test test test test test test test test test junk";\n' >"$repo/tests/fixtures/wallet.ts"
+	  mkdir -p "$repo/docs" "$repo/tests/fixtures"
+	  printf 'dangerouslySetInnerHTML={{__html: html}}\n' >"$repo/docs/example.md"
+	  printf '{"privateKey":"not-real"}\n' >"$repo/package-lock.json"
+	  printf 'const mnemonic = "test test test test test test test test test test test junk";\n' >"$repo/tests/fixtures/wallet.ts"
   commit_all "$repo" "head"
   head="$(git -C "$repo" rev-parse HEAD)"
 
@@ -123,6 +130,10 @@ write_fake_gh() {
 set -euo pipefail
 
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
+  if [[ "$*" == *"statusCheckRollup"* ]]; then
+    printf '[{"name":"ci","conclusion":"SUCCESS"}]\n'
+    exit 0
+  fi
   printf '{"number":1,"title":"Smoke PR","url":"https://example.invalid/pr/1","headRefOid":"%s","headRefName":"feature","baseRefName":"main","isDraft":false,"author":{"login":"tester"}}\n' "$FAKE_HEAD_SHA"
   exit 0
 fi
@@ -230,10 +241,10 @@ test_review_one_dry_run_and_timeout() {
   "includeDrafts": false,
   "repos": {
     "sample": {
-      "checks": ["sleep 5"]
+      "localChecks": ["sleep 5"]
     }
   },
-  "defaultChecks": ["true"]
+  "localChecks": ["true"]
 }
 JSON
   printf '{}\n' >"$state"
@@ -325,10 +336,10 @@ JSON
   "includeDrafts": false,
   "repos": {
     "sample": {
-      "checks": ["true"]
+      "localChecks": ["true"]
     }
   },
-  "defaultChecks": ["true"]
+  "localChecks": ["true"]
 }
 JSON
 
@@ -349,8 +360,9 @@ JSON
 
   jq -e --arg head "$clean_head" '."org/sample#1".head_sha == $head and ."org/sample#1".status == "clean"' "$state" >/dev/null ||
     fail "clean new PR head should update state with clean status"
-  printf -v expected_report_line 'No issues found for `%s`.' "$clean_head"
+  printf -v expected_report_line 'No local review-specific issues found for `%s`.' "$clean_head"
   assert_contains "$TMP_ROOT/logs/sample/pr-1-${clean_head:0:12}/report.md" "$expected_report_line"
+  assert_contains "$TMP_ROOT/logs/sample/pr-1-${clean_head:0:12}/report.md" "GitHub CI/checks: \`passing\`."
 
   : >"$calls"
   PATH="$fake_bin:$PATH" \
@@ -360,6 +372,7 @@ JSON
     FAKE_GH_CALL_LOG="$calls" \
     REVIEW_BOT_CONFIG="$config" \
     REVIEW_BOT_FORCE=1 \
+    REVIEW_BOT_POST=1 \
     REVIEW_BOT_LOCK_ROOT="$TMP_ROOT/locks" \
     "$BOT_DIR/review-one.sh" sample 1 >"$output" 2>&1
 
@@ -456,7 +469,7 @@ test_control_scripts() {
   "commentMode": "comment",
   "includeDrafts": false,
   "repos": {},
-  "defaultChecks": ["true"]
+  "localChecks": []
 }
 JSON
 
