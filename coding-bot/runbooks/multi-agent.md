@@ -16,6 +16,8 @@ Use the worker-plan helper when scaling:
   write scope.
 - Workers must use existing PR branches for review fixes.
 - Workers must not revert other people's changes.
+- Workers must keep generated scratch files inside their bot-owned runtime
+  workspace so they can delete those files safely.
 
 ## Keeping A Fixed Worker Count
 
@@ -44,6 +46,7 @@ When increasing worker count:
 2. Then use assigned issues without an open PR.
 3. Keep write scopes disjoint.
 4. Give every worker the shared standards plus the exact issue/PR target.
+5. Tell each worker where its runtime workspace is for generated files.
 
 ## Worker Final Report
 

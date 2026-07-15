@@ -6,6 +6,9 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ORG="${CODING_BOT_ORG:-yoroi-classic}"
 TARGET_WORKERS="${CODING_BOT_WORKERS:-}"
 CURRENT_WORKERS="${CODING_BOT_CURRENT_WORKERS:-unknown}"
+RUNTIME_ROOT="${CODING_BOT_RUNTIME_ROOT:-$ROOT/coding-bot/.runtime}"
+
+mkdir -p "$RUNTIME_ROOT"
 
 print_file() {
   local path="$1"
@@ -51,6 +54,10 @@ HEADER
 
 printf '\n## Workspace Status\n\n'
 git -C "$ROOT" status --short --branch || true
+
+printf '\n## Runtime Workspace\n\n'
+printf 'Coding-bot scratch files should stay under `%s`.\n' "${RUNTIME_ROOT#"$ROOT/"}"
+printf 'Generated prompts, review bodies, queues, and scratch files there may be deleted by the bot.\n'
 
 print_file "$ROOT/coding-bot/SKILL.md"
 print_file "$ROOT/standards/session.md"

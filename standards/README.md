@@ -10,3 +10,6 @@
 Both `coding-bot` and `review-bot` consume these files. Keep durable standards
 and recurring gotchas here; keep runtime scripts, queues, prompts, logs, and
 temporary checkouts in the bot-specific runtime directories.
+
+Bot-owned runtime directories are intentionally deletable workspaces. Generated
+files should live there instead of arbitrary `/tmp` paths whenever possible.

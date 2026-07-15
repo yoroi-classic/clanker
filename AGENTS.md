@@ -21,6 +21,9 @@ GitHub organization.
   commit/branch for every part of the change.
 - Preserve unrelated work in the superproject and every submodule. Before broad
   operations, inspect `git status` at the top level and in affected submodules.
+- Generated bot files belong inside the owning bot's runtime workspace, such as
+  `coding-bot/.runtime/` or `review-bot/.runtime/`, so the bot can safely delete
+  its own scratch files.
 - `.gitmodules` tracks each repository's current default branch. Branch creation
   or default-branch migration on GitHub requires explicit authorization.
 - Use `git submodule update --init --recursive` to materialize pinned checkouts.

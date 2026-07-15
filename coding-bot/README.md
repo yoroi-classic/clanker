@@ -26,6 +26,10 @@ The launcher prints the static operating guidance and, when `gh` is available,
 live assigned issues and authored pull requests. The live queue must always win
 over stale chat history.
 
+Generated scratch files belong under `coding-bot/.runtime/` by default. Override
+that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
+bot-owned workspace. Bots may delete generated files in their runtime workspace.
+
 ## Layout
 
 - `SKILL.md` is the primary instruction file for a coding agent.
@@ -33,6 +37,8 @@ over stale chat history.
 - `bin/start.sh` renders a session bootstrap with live GitHub queue context.
 - `bin/worker-plan.sh` renders scale-up/scale-down guidance for a target worker
   count.
+- `.runtime/` is the ignored workspace for generated prompts, review bodies,
+  scratch files, and temporary queues.
 
 Keep this directory small and operational. Runtime state, temporary clones,
 review queues, logs, and generated prompts belong under existing runtime

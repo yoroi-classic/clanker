@@ -30,6 +30,11 @@ Render a worker scaling plan whenever the target worker count changes:
 Then follow the rendered queue. Refresh live GitHub state before acting; do not
 trust old chat summaries or issue numbers without verification.
 
+Use `coding-bot/.runtime/` for generated scratch files, review bodies, temporary
+queues, and prompts. Override with `CODING_BOT_RUNTIME_ROOT` only when the
+session has another bot-owned workspace. Do not leave bot scratch files in
+arbitrary `/tmp` paths.
+
 ## Rules
 
 Read and follow:

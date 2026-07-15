@@ -23,7 +23,11 @@
 - Keep refactor edits small, direct, and reviewable.
 - Do not leave generated artifacts, coverage output, tarballs, caches, or temp
   clones in the working tree.
-- Clean your own `/tmp` directories. Do not touch `/tmp/yoroi-review-bot`.
+- Put generated bot files under the bot-owned runtime workspace, such as
+  `coding-bot/.runtime/` or `review-bot/.runtime/`, so the bot can delete its
+  own prompts, review bodies, queues, scratch files, and temporary checkouts.
+- Use `/tmp` only for external tooling that truly needs it, and clean those
+  paths immediately. Do not touch `/tmp/yoroi-review-bot`.
 
 ## Product Direction
 

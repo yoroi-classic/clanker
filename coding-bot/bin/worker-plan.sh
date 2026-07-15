@@ -11,6 +11,9 @@ the exact scale-up or scale-down action to take.
 
 Environment:
   CODING_BOT_ORG   GitHub organization to inspect (default: yoroi-classic)
+  CODING_BOT_RUNTIME_ROOT
+                    Directory for coding-bot scratch files
+                    (default: coding-bot/.runtime)
 USAGE
 }
 
@@ -29,6 +32,9 @@ fi
 TARGET="${1:-}"
 CURRENT="${2:-unknown}"
 ORG="${CODING_BOT_ORG:-yoroi-classic}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+RUNTIME_ROOT="${CODING_BOT_RUNTIME_ROOT:-$ROOT/coding-bot/.runtime}"
 
 if [[ -z "$TARGET" || ! "$TARGET" =~ ^[0-9]+$ ]]; then
   usage
@@ -39,6 +45,8 @@ if [[ "$CURRENT" != "unknown" && ! "$CURRENT" =~ ^[0-9]+$ ]]; then
   usage
   exit 2
 fi
+
+mkdir -p "$RUNTIME_ROOT"
 
 print_live_queue() {
   if ! command -v gh >/dev/null 2>&1; then
@@ -116,6 +124,7 @@ cat <<PLAN
 - Organization: \`$ORG\`
 - Target workers: \`$TARGET\`
 - Current workers: \`$CURRENT\`
+- Runtime workspace: \`${RUNTIME_ROOT#"$ROOT/"}\`
 
 PLAN
 
@@ -171,6 +180,9 @@ cat <<'PLAN'
   work is closed or blocked.
 - Completed workers should report the issue/PR, commit SHA, checks, and whether
   the item is cleared or blocked.
+- Worker scratch files, review bodies, generated prompts, and temporary queues
+  belong under the worker's bot-owned runtime workspace, not arbitrary `/tmp`
+  paths.
 PLAN
 
 if [[ "$INCLUDE_QUEUE" == "1" ]]; then
