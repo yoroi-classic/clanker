@@ -108,6 +108,11 @@ poll_once_unlocked() {
 }
 
 poll_once() {
+  if [[ "${REVIEW_BOT_QUEUE_LOCK_HELD:-0}" == "1" ]]; then
+    poll_once_unlocked
+    return
+  fi
+
   mkdir -p "$(dirname "$QUEUE_LOCK_FILE")"
   (
     flock 9
