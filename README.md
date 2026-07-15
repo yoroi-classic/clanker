@@ -8,6 +8,10 @@ discovery, implementation, testing, and review.
 The repository also contains `review-bot/`, the local pull-request discovery
 and evidence tooling used by semantic review agents.
 
+It also contains shared `standards/` plus `coding-bot/`, the reusable runtime
+instructions and launcher for starting coding-agent sessions with the same queue
+policy and review posture.
+
 ## Get the complete workspace
 
 For a new checkout:
@@ -107,3 +111,22 @@ REVIEW_BOT_WORKSPACE=/path/to/org-repos ./review-bot/start.sh
 
 See [`review-bot/README.md`](review-bot/README.md) for the evidence harness,
 queue, posting, state, and operating details.
+
+## Coding bot
+
+Render a new coding-agent session bootstrap:
+
+```sh
+./coding-bot/bin/start.sh
+```
+
+Render a worker-pool scaling plan:
+
+```sh
+./coding-bot/bin/worker-plan.sh 4 2
+```
+
+The coding bot prints the shared standards and, when `gh` is authenticated, the
+live assigned issue and authored PR queues. Keep top-level `standards/` current
+as operating practices and recurring gotchas evolve; both `coding-bot` and
+`review-bot` consume those files.

@@ -1,0 +1,39 @@
+# Coding Bot
+
+`coding-bot/` is the reusable operating runtime for coding-agent sessions in the
+`yoroi-classic` organization. It follows the shared standards in top-level
+`standards/` and adds the queue/startup routines needed to begin a session.
+
+Start a new session by rendering the current bootstrap:
+
+```sh
+./coding-bot/bin/start.sh
+```
+
+Render a worker-pool scale plan:
+
+```sh
+./coding-bot/bin/worker-plan.sh 4 2
+```
+
+You can also include a worker target in the startup output:
+
+```sh
+CODING_BOT_WORKERS=4 CODING_BOT_CURRENT_WORKERS=2 ./coding-bot/bin/start.sh
+```
+
+The launcher prints the static operating guidance and, when `gh` is available,
+live assigned issues and authored pull requests. The live queue must always win
+over stale chat history.
+
+## Layout
+
+- `SKILL.md` is the primary instruction file for a coding agent.
+- `runbooks/` contains task-specific operating procedures.
+- `bin/start.sh` renders a session bootstrap with live GitHub queue context.
+- `bin/worker-plan.sh` renders scale-up/scale-down guidance for a target worker
+  count.
+
+Keep this directory small and operational. Runtime state, temporary clones,
+review queues, logs, and generated prompts belong under existing runtime
+directories such as `review-bot/.runtime/`, not here.

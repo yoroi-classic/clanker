@@ -29,6 +29,9 @@ GitHub organization.
 
 ## Coding Standards
 
+- Shared agent standards live in top-level `standards/`. Keep durable operating
+  rules and recurring gotchas there so `coding-bot` and `review-bot` consume
+  the same guidance.
 - Keep changes local to the requested behavior and preserve each repository's
   package-manager, language, generated-file, migration, and schema workflows.
 - Do not introduce a new toolchain or broad refactor for a narrow change.
@@ -44,6 +47,7 @@ GitHub organization.
 
 ## Review Bot Operations
 
+- The review bot consumes shared review standards from `standards/review.md`.
 - The review bot lives in `review-bot/`. Its base checkouts default to the
   top-level `repos/` submodules; `clanker` itself maps to the superproject root.
   Override with `REVIEW_BOT_WORKSPACE=<path>` when appropriate.
@@ -77,6 +81,8 @@ GitHub organization.
 
 ## Review Standards
 
+- Durable review standards belong in `standards/review.md`; this section is the
+  high-level operating summary.
 - Treat every `yoroi-classic` repository as blockchain wallet code. Be pedantic
   around private keys, mnemonics, passphrases, signing, address derivation,
   wallet storage, transaction construction, fees, token amounts, network IDs,

@@ -30,6 +30,7 @@ REPO_DIR="$(review_bot_repo_dir "$REPO_ROOT" "$WORKSPACE" "$CONFIG" "$REPO")"
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
+SHARED_REVIEW_STANDARDS="$REPO_ROOT/standards/review.md"
 
 META="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
   --json number,title,url,headRefOid,headRefName,baseRefName,isDraft,author)"
@@ -84,6 +85,7 @@ Hard requirements:
 - Review only if \`$REVIEWER\` is explicitly requested as a reviewer.
 - Do not review self-authored PRs unless the orchestrator explicitly says so.
 - Do not approve from green checks alone.
+- Follow the shared review standards in \`standards/review.md\`.
 - Use GitHub CI/checks as the build/test signal; do not duplicate CI locally unless targeted reproduction is needed.
 - Run the local harness for review-specific evidence, then inspect the actual code diff and changed files.
 - For clean results, approve only after semantic review finds no actionable issue.
@@ -154,4 +156,7 @@ Finish by reporting to the orchestrator:
 
 Local review-specific checks configured for this repo:
 $(if [[ "${#LOCAL_CHECKS[@]}" -eq 0 ]]; then printf -- '- none\n'; else printf -- '- `%s`\n' "${LOCAL_CHECKS[@]}"; fi)
+
+Shared review standards:
+$(if [[ -f "$SHARED_REVIEW_STANDARDS" ]]; then sed 's/^/> /' "$SHARED_REVIEW_STANDARDS"; else printf 'Unavailable: standards/review.md was not found.\n'; fi)
 PROMPT

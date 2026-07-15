@@ -124,7 +124,8 @@ The watcher does not perform code review or post to GitHub. It writes the
 pending review queue to `review-bot/.runtime/queue.jsonl` and generated
 subagent prompts to `review-bot/.runtime/prompts/`. A review agent consumes
 those prompts, runs the harness, inspects the code, posts the GitHub review, and
-records completion with `review-bot/record-review.sh`.
+records completion with `review-bot/record-review.sh`. Generated prompts embed
+the shared review standards from `standards/review.md`.
 
 Each optional local review-specific check is capped by `checkTimeoutSeconds` in
 `config.json`, or by `REVIEW_BOT_CHECK_TIMEOUT_SECONDS` for a single run.
