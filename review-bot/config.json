@@ -11,110 +11,11 @@
   "commentMode": "comment",
   "includeDrafts": false,
   "skipSelfAuthored": true,
+  "worktreeRetain": 8,
+  "localChecks": [],
   "repos": {
-    "CIP4": {
-      "checks": [
-        "npm ci",
-        "npm run verify"
-      ]
-    },
-    "cardano-wallet-backend": {
-      "checks": [
-        "npm ci",
-        "npm run check:ci"
-      ]
-    },
-    "bring-chromeExtension": {
-      "checks": [
-        "cd iframe-frontend && yarn install --immutable",
-        "cd iframe-frontend && yarn build",
-        "cd iframe-frontend && yarn lint",
-        "cd extension-files/bringweb3-sdk && yarn install --immutable",
-        "cd extension-files/bringweb3-sdk && yarn lint",
-        "cd extension-files/bringweb3-sdk && yarn test:smoke"
-      ]
-    },
-    "cardano-serialization-lib": {
-      "checks": [
-        "./test.sh"
-      ]
-    },
-    "cip14-js": {
-      "checks": [
-        "npm ci",
-        "npm run verify"
-      ]
-    },
-    "cross-csl": {
-      "checks": [
-        "test ! -f .tool-versions || grep -Eq '^nodejs 22([.]|$| )' .tool-versions",
-        "npm ci",
-        "npm run clean",
-        "npm run build",
-        "npm run lint",
-        "npm run test:ci",
-        "npm_config_cache=\"${REVIEW_BOT_RUNTIME_ROOT}/npm-cache\" npm pack --dry-run --workspaces"
-      ]
-    },
-    "csl-mobile-bridge": {
-      "checks": [
-        "corepack enable",
-        "yarn install --immutable",
-        "yarn lint",
-        "yarn typecheck",
-        "yarn test:ci"
-      ]
-    },
-    "message-signing": {
-      "checks": [
-        "npm ci",
-        "npm run verify"
-      ]
-    },
-    "trezor-connect-flow": {
-      "checks": [
-        "npm ci",
-        "npm run build",
-        "npm test"
-      ]
-    },
-    "webpack-httpolyglot-server": {
-      "checks": [
-        "npm ci",
-        "npm run verify"
-      ]
-    },
     "yoroi": {
-      "workdir": "mobile",
-      "checks": [
-        "npm ci",
-        "npm run tsc",
-        "npm run lint",
-        "npm test"
-      ]
-    },
-    "yoroi-config": {
-      "checks": [
-        "node scripts/validate-config-contract.js"
-      ]
-    },
-    "yoroi-frontend": {
-      "checks": [
-        "npm ci",
-        "./check-all.sh"
-      ]
-    },
-    "yoroi-graphql-migration-backend": {
-      "checks": [
-        "npm ci",
-        "npm run eslint",
-        "npm test",
-        "npm run test:wallet-contracts"
-      ]
+      "workdir": "mobile"
     }
-  },
-  "defaultChecks": [
-    "test ! -f package.json || npm ci",
-    "test ! -f package.json || npm test --if-present"
-  ]
+  }
 }

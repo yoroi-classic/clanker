@@ -2,9 +2,11 @@
 
 Portable review-bot runner for GitHub organizations.
 
-Clanker watches pull requests where a configured reviewer has been requested,
-runs local checks in isolated worktrees, posts findings when checks fail, and
-approves clean PRs with a `No issues found for <sha>.` review body.
+Clanker watches pull requests where a configured reviewer has been requested and
+prepares review-agent prompts. The review agent uses GitHub CI/check status as
+the build/test signal, runs local review-specific scans, inspects the code, then
+posts findings or approves clean PRs with a `No issues found for <sha>.` review
+body.
 
 ## Quick Start
 
@@ -12,10 +14,10 @@ Requirements:
 
 - `gh` authenticated with access to the target organization
 - `git`, `jq`, `flock`, and `timeout`
-- the language/toolchain dependencies required by the repositories being
-  reviewed
+- the language/toolchain dependencies only for any optional local review-specific
+  probes you configure
 
-Run one polling pass:
+Refresh the review queue and generated prompts once:
 
 ```sh
 ./review-bot/run-once.sh

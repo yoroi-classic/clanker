@@ -18,22 +18,8 @@ LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG
 PID_FILE="${REVIEW_BOT_PID_FILE:-$RUNTIME_ROOT/watch.pid}"
 WATCH_LOG="${REVIEW_BOT_WATCH_LOG:-$LOG_ROOT/watch.log}"
 
-find_watch_pid() {
-  command -v ps >/dev/null 2>&1 || return 1
-  ps -eo pid=,args= 2>/dev/null | awk -v script="$WATCH_SCRIPT_PATH" '
-    {
-      pid = $1
-      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
-      if ($0 == "bash " script || $0 == script) {
-        print pid
-        exit
-      }
-    }
-  '
-}
-
 if [[ ! -f "$PID_FILE" ]]; then
-  found_pid="$(find_watch_pid || true)"
+  found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
   if [[ -n "$found_pid" ]]; then
     mkdir -p "$(dirname "$PID_FILE")"
     printf '%s\n' "$found_pid" >"$PID_FILE"
@@ -46,9 +32,10 @@ else
   pid="$(<"$PID_FILE")"
 fi
 
-if [[ -z "$pid" ]] || ! kill -0 "$pid" >/dev/null 2>&1; then
-  found_pid="$(find_watch_pid || true)"
+if [[ -z "$pid" ]] || ! review_bot_pid_is_watch "$pid" "$WATCH_SCRIPT_PATH"; then
+  found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
   if [[ -z "$found_pid" ]]; then
+    rm -f "$PID_FILE"
     echo "review-bot: watcher is not running; stale pid file at $PID_FILE"
     exit 1
   fi

@@ -16,29 +16,8 @@ fi
 RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" "$CONFIG" '.runtimeRoot' 'review-bot/.runtime')"
 PID_FILE="${REVIEW_BOT_PID_FILE:-$RUNTIME_ROOT/watch.pid}"
 
-find_watch_pid() {
-  command -v ps >/dev/null 2>&1 || return 1
-  ps -eo pid=,args= 2>/dev/null | awk -v script="$WATCH_SCRIPT_PATH" '
-    {
-      pid = $1
-      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
-      if ($0 == "bash " script || $0 == script) {
-        print pid
-        exit
-      }
-    }
-  '
-}
-
-watch_pattern() {
-  local escaped
-
-  escaped="$(printf '%s' "$WATCH_SCRIPT_PATH" | sed 's/[][\\.^$*+?{}|()]/\\&/g')"
-  printf '(^|.*/)bash %s$|^%s$' "$escaped" "$escaped"
-}
-
 if [[ ! -f "$PID_FILE" ]]; then
-  found_pid="$(find_watch_pid || true)"
+  found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
   if [[ -z "$found_pid" ]]; then
     echo "review-bot: watcher is not running"
     exit 0
@@ -48,26 +27,16 @@ else
   pid="$(<"$PID_FILE")"
 fi
 
-pid_running() {
-  local pid="$1"
-
-  [[ -n "$pid" ]] || return 1
-  kill -0 "$pid" >/dev/null 2>&1
-}
-
 terminate_watch() {
-  kill "$pid" >/dev/null 2>&1 || true
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -TERM -f "$(watch_pattern)" >/dev/null 2>&1 || true
-  fi
+  review_bot_terminate_tree "$pid"
 }
 
 watch_present() {
-  pid_running "$pid" || [[ -n "$(find_watch_pid || true)" ]]
+  review_bot_pid_is_watch "$pid" "$WATCH_SCRIPT_PATH" || [[ -n "$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)" ]]
 }
 
-if ! pid_running "$pid"; then
-  found_pid="$(find_watch_pid || true)"
+if ! review_bot_pid_is_watch "$pid" "$WATCH_SCRIPT_PATH"; then
+  found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
   if [[ -z "$found_pid" ]]; then
     rm -f "$PID_FILE"
     echo "review-bot: removed stale pid file"

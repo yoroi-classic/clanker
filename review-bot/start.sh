@@ -25,37 +25,16 @@ WATCH_LOG="${REVIEW_BOT_WATCH_LOG:-$LOG_ROOT/watch.log}"
 
 mkdir -p "$RUNTIME_ROOT" "$LOG_ROOT" "$(dirname "$PID_FILE")" "$(dirname "$WATCH_LOG")"
 
-pid_running() {
-  local pid="$1"
-
-  [[ -n "$pid" ]] || return 1
-  kill -0 "$pid" >/dev/null 2>&1
-}
-
-find_watch_pid() {
-  command -v ps >/dev/null 2>&1 || return 1
-  ps -eo pid=,args= 2>/dev/null | awk -v script="$WATCH_SCRIPT_PATH" '
-    {
-      pid = $1
-      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
-      if ($0 == "bash " script || $0 == script) {
-        print pid
-        exit
-      }
-    }
-  '
-}
-
 if [[ -f "$PID_FILE" ]]; then
   old_pid="$(<"$PID_FILE")"
-  if pid_running "$old_pid"; then
+  if review_bot_pid_is_watch "$old_pid" "$WATCH_SCRIPT_PATH"; then
     echo "review-bot: watcher already running with pid $old_pid"
     exit 0
   fi
   rm -f "$PID_FILE"
 fi
 
-found_pid="$(find_watch_pid || true)"
+found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
 if [[ -n "$found_pid" ]]; then
   printf '%s\n' "$found_pid" >"$PID_FILE"
   echo "review-bot: watcher already running with pid $found_pid"
@@ -71,8 +50,8 @@ pid="$!"
 printf '%s\n' "$pid" >"$PID_FILE"
 
 sleep 1
-if ! pid_running "$pid"; then
-  found_pid="$(find_watch_pid || true)"
+if ! review_bot_pid_is_watch "$pid" "$WATCH_SCRIPT_PATH"; then
+  found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
   if [[ -z "$found_pid" ]]; then
     echo "review-bot: watcher failed to start; recent log:" >&2
     tail -40 "$WATCH_LOG" >&2 || true

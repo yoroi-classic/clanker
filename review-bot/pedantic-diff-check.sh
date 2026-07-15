@@ -51,7 +51,7 @@ matches_ere() {
   printf '%s\n' "$text" | LC_ALL=C grep -Eiq -- "$regex"
 }
 
-skip_path() {
+skip_all_path() {
   case "$1" in
     package-lock.json|*/package-lock.json|yarn.lock|*/yarn.lock|pnpm-lock.yaml|*/pnpm-lock.yaml)
       return 0
@@ -62,10 +62,17 @@ skip_path() {
     dist/*|*/dist/*|build/*|*/build/*|coverage/*|*/coverage/*|node_modules/*|*/node_modules/*)
       return 0
       ;;
-    flow-typed/*|*/flow-typed/*|docs/*|*/docs/*|*.md|*.mdx)
+    csl-mobile-bridge/cpp/NativeCslMobileBridgeModule.cpp)
       return 0
       ;;
-    csl-mobile-bridge/cpp/NativeCslMobileBridgeModule.cpp)
+  esac
+
+  return 1
+}
+
+low_signal_path() {
+  case "$1" in
+    flow-typed/*|*/flow-typed/*|docs/*|*/docs/*|*.md|*.mdx)
       return 0
       ;;
   esac
@@ -144,20 +151,82 @@ report() {
   printf '  added: %s\n\n' "$(sanitize "$content")"
 }
 
+added_context() {
+  local index="$1"
+  local radius="${2:-4}"
+  local file="${files[$index]}"
+  local line="${lines[$index]}"
+  local start="$((index - radius))"
+  local end="$((index + radius))"
+  local cursor
+  local cursor_line
+
+  [[ "$start" -ge 0 ]] || start=0
+  [[ "$end" -lt "${#files[@]}" ]] || end="$((${#files[@]} - 1))"
+
+  for ((cursor = start; cursor <= end; cursor++)); do
+    [[ "${files[$cursor]}" == "$file" ]] || continue
+    cursor_line="${lines[$cursor]}"
+    if [[ "$cursor_line" =~ ^[0-9]+$ && "$line" =~ ^[0-9]+$ ]]; then
+      [[ "$cursor_line" -ge "$((line - radius))" && "$cursor_line" -le "$((line + radius))" ]] || continue
+    fi
+    printf '%s\n' "${stripped_lowers[$cursor]}"
+  done
+}
+
+files=()
+lines=()
+contents=()
+lowers=()
+stripped_lowers=()
 while IFS=$'\t' read -r file line content; do
-  if skip_path "$file"; then
+  files+=("$file")
+  lines+=("$line")
+  contents+=("$content")
+  lowers+=("${content,,}")
+  stripped="$(strip_string_literals "$content")"
+  stripped_lowers+=("${stripped,,}")
+done <"$tmp_additions"
+
+secret_terms='mnemonic|seed[_. -]?phrase|seedphrase|recovery[_. -]?phrase|recoveryphrase|private[_. -]?key|privatekey|root[_. -]?key|rootkey|spending[_. -]?password|spendingpassword|passphrase|xprv|xpriv|api[_. -]?key|apikey|access[_. -]?token|accesstoken|refresh[_. -]?token|refreshtoken|auth[_. -]?token|authtoken|authorization|secret'
+log_or_telemetry_terms='console\.|logger|log\(|sentry|analytics|telemetry|track\(|captureexception|capturemessage'
+
+for index in "${!files[@]}"; do
+  file="${files[$index]}"
+  line="${lines[$index]}"
+  content="${contents[$index]}"
+
+  if skip_all_path "$file"; then
     continue
   fi
 
-  lower="${content,,}"
-  stripped="$(strip_string_literals "$content")"
-  stripped_lower="${stripped,,}"
+  lower="${lowers[$index]}"
+  stripped_lower="${stripped_lowers[$index]}"
   file_lower="${file,,}"
-  secret_terms='mnemonic|seed[_. -]?phrase|seedphrase|recovery[_. -]?phrase|recoveryphrase|private[_. -]?key|privatekey|root[_. -]?key|rootkey|spending[_. -]?password|spendingpassword|passphrase|xprv|xpriv|api[_. -]?key|apikey|access[_. -]?token|accesstoken|refresh[_. -]?token|refreshtoken|auth[_. -]?token|authtoken|authorization|secret'
+  context="$(added_context "$index" 4)"
 
-  if matches_ere "$stripped_lower" '(console\.|logger|log\(|sentry|analytics|telemetry|track\(|captureexception|capturemessage)' &&
-    matches_ere "$stripped_lower" "$secret_terms"; then
+  if matches_ere "$stripped_lower" "$log_or_telemetry_terms" &&
+    matches_ere "$context" "$secret_terms"; then
     report "possible sensitive wallet material in logging or telemetry" "$file" "$line" "$content"
+  fi
+
+  if matches_ere "$stripped_lower" '(localstorage|sessionstorage|asyncstorage)\.setitem|\b(chrome|browser)\.storage\.(sync|local)\.set|navigator\.clipboard\.writetext|clipboard\.setstring|urlsearchparams|searchparams\.set|location\.(href|assign|replace)' &&
+    matches_ere "$context" "$secret_terms"; then
+    report "secret material written to unsafe storage, clipboard, or URL surface" "$file" "$line" "$content"
+  fi
+
+  if ! test_or_fixture_path "$file" &&
+    {
+      matches_ere "$lower" "(const|let|var)[[:space:]]+(mnemonic|seedphrase|recoveryphrase|privatekey|rootkey|xprv|xpriv|passphrase)\\b[^=]*=[[:space:]]*$quote_re" ||
+        matches_ere "$lower" "(privatekey|bip32privatekey)\\.(from_hex|from_bech32|from_bytes)[[:space:]]*\\([[:space:]]*$quote_re" ||
+        matches_ere "$lower" "mnemonictoentropy[[:space:]]*\\([[:space:]]*$quote_re" ||
+        matches_ere "$lower" "(privatekey|private_key|rootkey|root_key)[[:space:]]*:[[:space:]]*$quote_re"
+    }; then
+    report "hardcoded wallet secret material added" "$file" "$line" "$content"
+  fi
+
+  if low_signal_path "$file"; then
+    continue
   fi
 
   if matches_ere "$lower" 'eval[[:space:]]*\(|new[[:space:]]+function[[:space:]]*\(' ||
@@ -175,21 +244,6 @@ while IFS=$'\t' read -r file line content; do
     report "TLS or certificate verification weakening added" "$file" "$line" "$content"
   fi
 
-  if matches_ere "$stripped_lower" '(localstorage|sessionstorage|asyncstorage)\.setitem|\b(chrome|browser)\.storage\.(sync|local)\.set|navigator\.clipboard\.writetext|clipboard\.setstring|urlsearchparams|searchparams\.set|location\.(href|assign|replace)' &&
-    matches_ere "$stripped_lower" "$secret_terms"; then
-    report "secret material written to unsafe storage, clipboard, or URL surface" "$file" "$line" "$content"
-  fi
-
-  if ! test_or_fixture_path "$file" &&
-    {
-      matches_ere "$lower" "(const|let|var)[[:space:]]+(mnemonic|seedphrase|recoveryphrase|privatekey|rootkey|xprv|xpriv|passphrase)\\b[^=]*=[[:space:]]*$quote_re" ||
-        matches_ere "$lower" "(privatekey|bip32privatekey)\\.(from_hex|from_bech32|from_bytes)[[:space:]]*\\([[:space:]]*$quote_re" ||
-        matches_ere "$lower" "mnemonictoentropy[[:space:]]*\\([[:space:]]*$quote_re" ||
-        matches_ere "$lower" "(privatekey|private_key|rootkey|root_key)[[:space:]]*:[[:space:]]*$quote_re"
-    }; then
-    report "hardcoded wallet secret material added" "$file" "$line" "$content"
-  fi
-
   if [[ "$file_lower" =~ (^|/)(manifest|.*config).*\.(json|js|ts|cjs|mjs)$ ]] &&
     matches_ere "$lower" '"<all_urls>"|"clipboardread"|"webrequestblocking"|"debugger"|"nativemessaging"|unsafe-eval|script-src[^;]*(\*|http:)'; then
     report "extension permission or CSP surface expanded" "$file" "$line" "$content"
@@ -199,11 +253,11 @@ while IFS=$'\t' read -r file line content; do
     report "non-cryptographic randomness near wallet or key material" "$file" "$line" "$content"
   fi
 
-  if [[ "$lower" =~ (parsefloat|parseint|number\(|tonumber\(\)) &&
+  if [[ "$lower" =~ (parsefloat|parseint|number\(|tonumber\() &&
         "$lower" =~ (lovelace|amount|balance|quantity|asset|token|ada|fee|utxo|coin) ]]; then
     report "plain numeric conversion near monetary value" "$file" "$line" "$content"
   fi
-done <"$tmp_additions"
+done
 
 if [[ "$findings" -ne 0 ]]; then
   exit 1

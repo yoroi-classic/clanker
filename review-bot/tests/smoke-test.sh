@@ -55,13 +55,19 @@ test_pedantic_diff_check() {
   commit_all "$repo" "base"
   base="$(git -C "$repo" rev-parse HEAD)"
 
+  mkdir -p "$repo/docs"
   {
     printf 'console.error("wrong password", err);\n'
     printf 'console.log("mnemonic", userMnemonic);\n'
+    printf 'console.log({\n'
+    printf '  mnemonic: userMnemonic,\n'
+    printf '});\n'
     printf 'localStorage.setItem("seed", seedPhrase);\n'
     printf 'const fee = Number(lovelaceAmount);\n'
+    printf 'const assetQuantity = tokenAmount.toNumber(lovelaceAmount);\n'
     printf 'dangerouslySetInnerHTML={{__html: html}};\n'
   } >>"$repo/wallet.ts"
+  printf 'const mnemonic = "test test test test test test test test test test test junk";\n' >"$repo/docs/security.md"
   printf '{"permissions":["<all_urls>"]}\n' >"$repo/manifest.json"
   commit_all "$repo" "head"
   head="$(git -C "$repo" rev-parse HEAD)"
@@ -80,6 +86,7 @@ test_pedantic_diff_check() {
   assert_contains "$output" "plain numeric conversion near monetary value"
   assert_contains "$output" "raw HTML injection surface added"
   assert_contains "$output" "extension permission or CSP surface expanded"
+  assert_contains "$output" "hardcoded wallet secret material added"
   assert_not_contains "$output" "wrong password"
 }
 
@@ -96,7 +103,7 @@ test_pedantic_diff_check_ignores_low_signal_paths() {
   base="$(git -C "$repo" rev-parse HEAD)"
 
   mkdir -p "$repo/docs" "$repo/tests/fixtures"
-  printf 'console.log(privateKey)\n' >"$repo/docs/example.md"
+  printf 'dangerouslySetInnerHTML={{__html: html}}\n' >"$repo/docs/example.md"
   printf '{"privateKey":"not-real"}\n' >"$repo/package-lock.json"
   printf 'const mnemonic = "test test test test test test test test test test test junk";\n' >"$repo/tests/fixtures/wallet.ts"
   commit_all "$repo" "head"
@@ -123,6 +130,10 @@ write_fake_gh() {
 set -euo pipefail
 
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
+  if [[ "$*" == *"statusCheckRollup"* ]]; then
+    printf '[{"name":"ci","conclusion":"SUCCESS"}]\n'
+    exit 0
+  fi
   printf '{"number":1,"title":"Smoke PR","url":"https://example.invalid/pr/1","headRefOid":"%s","headRefName":"feature","baseRefName":"main","isDraft":false,"author":{"login":"tester"}}\n' "$FAKE_HEAD_SHA"
   exit 0
 fi
@@ -130,6 +141,11 @@ fi
 if [[ "$1" == "api" ]]; then
   if [[ "$2" == "user" ]]; then
     printf 'fake-reviewer\n'
+    exit 0
+  fi
+
+  if [[ "$*" == *"/search/issues"* ]]; then
+    printf '%s\n' "${FAKE_SEARCH_ROW:-}"
     exit 0
   fi
 
@@ -158,9 +174,9 @@ if [[ "$1" == "api" ]]; then
       printf '%s\n' "$FAKE_BASE_SHA"
     else
       if [[ "${FAKE_REVIEW_REQUESTED:-1}" == "1" ]]; then
-        printf '{"base":{"sha":"%s"},"requested_reviewers":[{"login":"wolf31o2"}]}\n' "$FAKE_BASE_SHA"
+        printf '{"head":{"sha":"%s"},"base":{"sha":"%s"},"requested_reviewers":[{"login":"wolf31o2"}]}\n' "$FAKE_HEAD_SHA" "$FAKE_BASE_SHA"
       else
-        printf '{"base":{"sha":"%s"},"requested_reviewers":[]}\n' "$FAKE_BASE_SHA"
+        printf '{"head":{"sha":"%s"},"base":{"sha":"%s"},"requested_reviewers":[]}\n' "$FAKE_HEAD_SHA" "$FAKE_BASE_SHA"
       fi
     fi
     exit 0
@@ -230,10 +246,10 @@ test_review_one_dry_run_and_timeout() {
   "includeDrafts": false,
   "repos": {
     "sample": {
-      "checks": ["sleep 5"]
+      "localChecks": ["sleep 5"]
     }
   },
-  "defaultChecks": ["true"]
+  "localChecks": ["true"]
 }
 JSON
   printf '{}\n' >"$state"
@@ -325,10 +341,10 @@ JSON
   "includeDrafts": false,
   "repos": {
     "sample": {
-      "checks": ["true"]
+      "localChecks": ["true"]
     }
   },
-  "defaultChecks": ["true"]
+  "localChecks": ["true"]
 }
 JSON
 
@@ -349,8 +365,9 @@ JSON
 
   jq -e --arg head "$clean_head" '."org/sample#1".head_sha == $head and ."org/sample#1".status == "clean"' "$state" >/dev/null ||
     fail "clean new PR head should update state with clean status"
-  printf -v expected_report_line 'No issues found for `%s`.' "$clean_head"
+  printf -v expected_report_line 'No local review-specific issues found for `%s`.' "$clean_head"
   assert_contains "$TMP_ROOT/logs/sample/pr-1-${clean_head:0:12}/report.md" "$expected_report_line"
+  assert_contains "$TMP_ROOT/logs/sample/pr-1-${clean_head:0:12}/report.md" "GitHub CI/checks: \`passing\`."
 
   : >"$calls"
   PATH="$fake_bin:$PATH" \
@@ -360,6 +377,7 @@ JSON
     FAKE_GH_CALL_LOG="$calls" \
     REVIEW_BOT_CONFIG="$config" \
     REVIEW_BOT_FORCE=1 \
+    REVIEW_BOT_POST=1 \
     REVIEW_BOT_LOCK_ROOT="$TMP_ROOT/locks" \
     "$BOT_DIR/review-one.sh" sample 1 >"$output" 2>&1
 
@@ -368,7 +386,117 @@ JSON
   assert_contains "$calls" "/repos/org/sample/pulls/1/reviews"
   assert_contains "$calls" "event=APPROVE"
   jq -e '."org/sample#1".comment_url == "https://example.invalid/reviews/approve"' "$state" >/dev/null ||
-    fail "clean posted review should record approval URL"
+	    fail "clean posted review should record approval URL"
+}
+
+test_list_queue_json_and_prompt_base_key() {
+  local config="$TMP_ROOT/queue-config.json"
+  local fake_bin="$TMP_ROOT/queue-bin"
+  local output="$TMP_ROOT/list-queue.out"
+  local runtime="$TMP_ROOT/queue-runtime"
+  local state="$TMP_ROOT/queue-state.json"
+  local title
+  local row
+  local base="baseabcdef1234567890"
+  local head="headabcdef1234567890"
+
+  write_fake_gh "$fake_bin"
+  title=$'Bump odd\\title with tab\tand newline\ninside'
+  row="$(jq -cn --arg title "$title" \
+    '{repo:"sample", number:1, url:"https://example.invalid/pr/1", author:"tester", title:$title}' |
+    base64 |
+    tr -d '\n')"
+
+  cat >"$config" <<JSON
+{
+  "owner": "org",
+  "reviewer": "wolf31o2",
+  "runtimeRoot": "$runtime",
+  "worktreeRoot": "$TMP_ROOT/queue-worktrees",
+  "logRoot": "$TMP_ROOT/queue-logs",
+  "stateFile": "$state",
+  "pollSeconds": 300,
+  "includeDrafts": false,
+  "repos": {},
+  "localChecks": []
+}
+JSON
+  jq -n --arg head "$head" --arg base "$base" \
+    '{"org/sample#1":{head_sha:$head, base_sha:$base, review_kind:"check", status:"findings"}}' >"$state"
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_SEARCH_ROW="$row" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/list-queue.sh" pending >"$output"
+
+  jq -e --arg title "$title" '.title == $title and .needs_review == true' "$output" >/dev/null ||
+    fail "list-queue should preserve escaped JSON title and keep check-only state pending"
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_SEARCH_ROW="$row" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/run-once.sh" >"$output"
+  assert_contains "$output" "org-sample-1-${base:0:12}-${head:0:12}.md"
+  assert_contains "$runtime/queue.jsonl" "org-sample-1-${base:0:12}-${head:0:12}.md"
+
+  jq -n --arg head "$head" --arg base "$base" \
+    '{"org/sample#1":{head_sha:$head, base_sha:$base, review_kind:"semantic", status:"findings"}}' >"$state"
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_SEARCH_ROW="$row" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/list-queue.sh" pending >"$output"
+  [[ ! -s "$output" ]] || fail "semantic state for same head/base should suppress pending queue"
+}
+
+test_record_review_rejects_moved_pr() {
+  local config="$TMP_ROOT/record-config.json"
+  local fake_bin="$TMP_ROOT/record-bin"
+  local state="$TMP_ROOT/record-state.json"
+  local output="$TMP_ROOT/record.out"
+  local current_head="current-head-sha"
+  local reviewed_head="reviewed-head-sha"
+  local base="base-sha"
+  local rc
+
+  write_fake_gh "$fake_bin"
+  cat >"$config" <<JSON
+{
+  "owner": "org",
+  "reviewer": "wolf31o2",
+  "runtimeRoot": "$TMP_ROOT/record-runtime",
+  "stateFile": "$state"
+}
+JSON
+
+  set +e
+  PATH="$fake_bin:$PATH" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$current_head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/record-review.sh" sample 1 clean https://example.invalid/review "$reviewed_head" "$base" >"$output" 2>&1
+  rc="$?"
+  set -e
+
+  [[ "$rc" -eq 1 ]] || fail "record-review should reject moved PR head, got $rc"
+  assert_contains "$output" "refusing to record org/sample#1; PR head moved"
+  [[ ! -f "$state" ]] || jq -e 'length == 0' "$state" >/dev/null || fail "moved PR should not update state"
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$current_head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/record-review.sh" sample 1 clean https://example.invalid/review "$current_head" "$base" >"$output" 2>&1
+
+  jq -e --arg head "$current_head" --arg base "$base" \
+    '."org/sample#1".head_sha == $head and ."org/sample#1".base_sha == $base and ."org/sample#1".review_kind == "semantic"' "$state" >/dev/null ||
+    fail "record-review should record matching reviewed head/base"
 }
 
 test_portable_config_helpers() {
@@ -456,7 +584,7 @@ test_control_scripts() {
   "commentMode": "comment",
   "includeDrafts": false,
   "repos": {},
-  "defaultChecks": ["true"]
+  "localChecks": []
 }
 JSON
 
@@ -515,6 +643,8 @@ SH
 
 test_pedantic_diff_check
 test_pedantic_diff_check_ignores_low_signal_paths
+test_list_queue_json_and_prompt_base_key
+test_record_review_rejects_moved_pr
 test_portable_config_helpers
 test_review_one_dry_run_and_timeout
 test_control_scripts
