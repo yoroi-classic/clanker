@@ -30,6 +30,10 @@ Generated scratch files belong under `coding-bot/.runtime/` by default. Override
 that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
 bot-owned workspace. Bots may delete generated files in their runtime workspace.
 
+When a session discovers a durable improvement to coding-bot behavior, prompts,
+runbooks, or shared standards, open or use a `clanker` issue and publish the
+change as a normal suggestion PR.
+
 ## Layout
 
 - `SKILL.md` is the primary instruction file for a coding agent.

@@ -114,6 +114,13 @@ Run the local smoke test:
 The smoke test uses temporary local git repositories and a mocked `gh` command.
 It does not post to GitHub.
 
+## Self-Improvement
+
+When a review pass identifies a durable improvement to review-bot behavior,
+prompts, scans, state handling, or shared standards, track it with a `clanker`
+issue and publish the update as a normal suggestion PR. Do not silently mutate
+review-bot runtime behavior outside the reviewed branch.
+
 ## Scheduling
 
 For continuous operation, run `review-bot/watch.sh` from a terminal, or use the

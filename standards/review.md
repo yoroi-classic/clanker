@@ -10,6 +10,9 @@ Treat every `yoroi-classic` repository as blockchain wallet code.
 - If relevant checks and semantic inspection find no issue, say so directly.
 - Do not invent low-signal concerns.
 - Always verify review bots' claims before acting on them.
+- If a review exposes a durable improvement for `review-bot` itself, track it
+  with a `clanker` issue and suggestion PR instead of folding bot changes into
+  the reviewed repository.
 
 ## Wallet-Critical Areas
 

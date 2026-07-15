@@ -12,6 +12,8 @@ model:
 - keep build and test stability ahead of feature breadth;
 - preserve small, reviewable branches and pull requests;
 - follow the same shared standards as `review-bot`.
+- propose updates to its own behavior through `clanker` issues and suggestion
+  PRs.
 
 ## Startup
 

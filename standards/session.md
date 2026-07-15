@@ -29,6 +29,15 @@
 - Use `/tmp` only for external tooling that truly needs it, and clean those
   paths immediately. Do not touch `/tmp/yoroi-review-bot`.
 
+## Bot Self-Improvement
+
+- When `coding-bot` or `review-bot` identifies a durable improvement to its own
+  prompts, standards, runbooks, scripts, or docs, open or use a `clanker` issue
+  and make the update through a normal suggestion PR.
+- Do not silently mutate bot runtime behavior outside review. Runtime scratch
+  files remain deletable implementation details; durable bot changes belong in
+  tracked files and reviewed branches.
+
 ## Product Direction
 
 - Stability comes first: clean builds, meaningful tests, secure dependency

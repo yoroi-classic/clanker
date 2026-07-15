@@ -35,6 +35,10 @@ GitHub organization.
 - Shared agent standards live in top-level `standards/`. Keep durable operating
   rules and recurring gotchas there so `coding-bot` and `review-bot` consume
   the same guidance.
+- Bot improvements are regular `clanker` work. If `coding-bot` or `review-bot`
+  needs better prompts, standards, runbooks, scripts, or docs, create or use an
+  issue and publish a suggestion PR instead of changing runtime behavior
+  silently.
 - Keep changes local to the requested behavior and preserve each repository's
   package-manager, language, generated-file, migration, and schema workflows.
 - Do not introduce a new toolchain or broad refactor for a narrow change.
