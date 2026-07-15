@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$#" -lt 4 ]]; then
-  echo "usage: $0 <repo> <pr-number> <clean|findings> <review-url> [report-path]" >&2
+if [[ "$#" -lt 6 ]]; then
+  echo "usage: $0 <repo> <pr-number> <clean|findings> <review-url> <reviewed-head-sha> <reviewed-base-sha> [report-path]" >&2
   exit 2
 fi
 
@@ -14,7 +14,9 @@ REPO="$1"
 PR_NUMBER="$2"
 STATUS="$3"
 REVIEW_URL="$4"
-REPORT="${5:-}"
+REVIEWED_HEAD_SHA="$5"
+REVIEWED_BASE_SHA="$6"
+REPORT="${7:-}"
 
 case "$STATUS" in
   clean|findings)
@@ -41,9 +43,19 @@ RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" 
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 STATE_LOCK_FILE="${REVIEW_BOT_STATE_LOCK:-$RUNTIME_ROOT/state.lock}"
 PULL="$(gh api "/repos/$OWNER/$REPO/pulls/$PR_NUMBER")"
-HEAD_SHA="$(jq -r '.head.sha' <<<"$PULL")"
-BASE_SHA="$(jq -r '.base.sha' <<<"$PULL")"
+CURRENT_HEAD_SHA="$(jq -r '.head.sha' <<<"$PULL")"
+CURRENT_BASE_SHA="$(jq -r '.base.sha' <<<"$PULL")"
 KEY="$OWNER/$REPO#$PR_NUMBER"
+
+if [[ "$CURRENT_HEAD_SHA" != "$REVIEWED_HEAD_SHA" ]]; then
+  echo "review-bot: refusing to record $KEY; PR head moved from reviewed $REVIEWED_HEAD_SHA to $CURRENT_HEAD_SHA" >&2
+  exit 1
+fi
+
+if [[ "$CURRENT_BASE_SHA" != "$REVIEWED_BASE_SHA" ]]; then
+  echo "review-bot: refusing to record $KEY; PR base moved from reviewed $REVIEWED_BASE_SHA to $CURRENT_BASE_SHA" >&2
+  exit 1
+fi
 
 mkdir -p "$(dirname "$STATE_FILE")" "$(dirname "$STATE_LOCK_FILE")"
 exec 8>"$STATE_LOCK_FILE"
@@ -56,8 +68,8 @@ fi
 tmp_state="$(mktemp "$(dirname "$STATE_FILE")/.reviews.XXXXXX")"
 jq \
   --arg key "$KEY" \
-  --arg head_sha "$HEAD_SHA" \
-  --arg base_sha "$BASE_SHA" \
+  --arg head_sha "$REVIEWED_HEAD_SHA" \
+  --arg base_sha "$REVIEWED_BASE_SHA" \
   --arg status "$STATUS" \
   --arg report "$REPORT" \
   --arg comment_url "$REVIEW_URL" \
@@ -74,4 +86,4 @@ jq \
   } | if $report == "" then .[$key] |= del(.report) else . end' "$STATE_FILE" >"$tmp_state"
 mv "$tmp_state" "$STATE_FILE"
 
-echo "review-bot: recorded semantic review for $KEY at $HEAD_SHA with status $STATUS"
+echo "review-bot: recorded semantic review for $KEY at $REVIEWED_HEAD_SHA with status $STATUS"

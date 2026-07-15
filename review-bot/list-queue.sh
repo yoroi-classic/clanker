@@ -28,6 +28,7 @@ require() {
 }
 
 require gh
+require base64
 require jq
 
 OWNER="$(review_bot_owner "$CONFIG")"
@@ -44,7 +45,7 @@ else
 fi
 
 search_output="$(gh api -X GET /search/issues -f "q=$QUERY" -f per_page=100 --paginate --jq \
-  '.items[] | [.repository_url, (.number | tostring), .html_url, .user.login, .title] | @tsv')" || {
+  '.items[] | {repo:(.repository_url | split("/")[-1]), number, url:.html_url, author:.user.login, title:.title} | @base64')" || {
   echo "review-bot: failed to search review-requested PRs for $REVIEWER in $OWNER" >&2
   exit 1
 }
@@ -55,8 +56,12 @@ else
 fi
 
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r repo_url number url author title <<<"$row"
-  repo="${repo_url##*/}"
+  item="$(base64 -d <<<"$row")"
+  repo="$(jq -r '.repo' <<<"$item")"
+  number="$(jq -r '.number' <<<"$item")"
+  url="$(jq -r '.url' <<<"$item")"
+  author="$(jq -r '.author' <<<"$item")"
+  title="$(jq -r '.title' <<<"$item")"
 
   if [[ "$SKIP_SELF_AUTHORED" == "true" && "$author" == "$REVIEWER" && "${REVIEW_BOT_INCLUDE_SELF_AUTHORED:-0}" != "1" ]]; then
     continue

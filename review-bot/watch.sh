@@ -10,7 +10,18 @@ POLL_SECONDS="${REVIEW_BOT_POLL_SECONDS:-$(jq -r '.pollSeconds // 300' "$CONFIG"
 RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" "$CONFIG" '.runtimeRoot' 'review-bot/.runtime')"
 PROMPT_DIR="${REVIEW_BOT_PROMPT_DIR:-$RUNTIME_ROOT/prompts}"
 QUEUE_FILE="${REVIEW_BOT_QUEUE_FILE:-$RUNTIME_ROOT/queue.jsonl}"
+QUEUE_LOCK_FILE="${REVIEW_BOT_QUEUE_LOCK:-$RUNTIME_ROOT/queue.lock}"
 child_pid=""
+
+require() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "review-bot: missing required command: $1" >&2
+    exit 2
+  fi
+}
+
+require flock
+require jq
 
 case "$MODE" in
   watch|--watch)
@@ -40,7 +51,7 @@ shutdown() {
 
 trap shutdown INT TERM
 
-poll_once() {
+poll_once_unlocked() {
   local queue_tmp
   local raw_tmp
   local count=0
@@ -48,7 +59,9 @@ poll_once() {
   local number
   local owner
   local head_sha
+  local base_sha
   local short_sha
+  local short_base_sha
   local prompt_file
   local prompt_tmp
 
@@ -67,8 +80,10 @@ poll_once() {
     repo="$(jq -r '.repo' <<<"$item")"
     number="$(jq -r '.number' <<<"$item")"
     head_sha="$(jq -r '.head_sha' <<<"$item")"
+    base_sha="$(jq -r '.base_sha' <<<"$item")"
     short_sha="${head_sha:0:12}"
-    prompt_file="$PROMPT_DIR/$owner-$repo-$number-$short_sha.md"
+    short_base_sha="${base_sha:0:12}"
+    prompt_file="$PROMPT_DIR/$owner-$repo-$number-$short_base_sha-$short_sha.md"
 
     if [[ ! -f "$prompt_file" ]]; then
       prompt_tmp="$(mktemp "$PROMPT_DIR/.prompt.XXXXXX")"
@@ -90,6 +105,14 @@ poll_once() {
   else
     printf '%s review-bot: %s pending semantic review prompt(s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$count"
   fi
+}
+
+poll_once() {
+  mkdir -p "$(dirname "$QUEUE_LOCK_FILE")"
+  (
+    flock 9
+    poll_once_unlocked
+  ) 9>"$QUEUE_LOCK_FILE"
 }
 
 if [[ "$MODE" == "once" ]]; then

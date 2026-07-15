@@ -59,6 +59,27 @@ is_review_requested_for_bot() {
     'any(.requested_reviewers[]?; .login == $reviewer)' <<<"$pull" >/dev/null
 }
 
+active_worktree_leased() {
+  local candidate="$1"
+  local lease
+  local lease_pid
+  local leased_worktree
+
+  [[ -d "${WORKTREE_LEASE_DIR:-}" ]] || return 1
+
+  for lease in "$WORKTREE_LEASE_DIR"/*.lease; do
+    [[ -e "$lease" ]] || continue
+    IFS=$'\t' read -r lease_pid leased_worktree <"$lease" || true
+    if review_bot_pid_running "$lease_pid"; then
+      [[ "$leased_worktree" == "$candidate" ]] && return 0
+    else
+      rm -f "$lease"
+    fi
+  done
+
+  return 1
+}
+
 prune_old_review_worktrees() {
   local repo_worktree_dir="$WORKTREE_ROOT/$REPO"
   local retain="$WORKTREE_RETAIN"
@@ -81,6 +102,9 @@ prune_old_review_worktrees() {
     if [[ "$index" -le "$retain" || "$old_worktree" == "$WORKTREE" ]]; then
       continue
     fi
+    if active_worktree_leased "$old_worktree"; then
+      continue
+    fi
 
     if ! git -C "$REPO_DIR" worktree remove --force "$old_worktree" >/dev/null 2>&1; then
       printf 'review-bot: warning: failed to remove old worktree %s\n' "$old_worktree" >&2
@@ -91,6 +115,8 @@ prune_old_review_worktrees() {
 LOCK_ROOT="${REVIEW_BOT_LOCK_ROOT:-$RUNTIME_ROOT/locks}"
 mkdir -p "$LOCK_ROOT"
 PR_LOCK_FILE="$LOCK_ROOT/$OWNER-$REPO-$PR_NUMBER.lock"
+REPO_WORKTREE_LOCK_FILE="$LOCK_ROOT/$OWNER-$REPO-worktrees.lock"
+WORKTREE_LEASE_DIR="$LOCK_ROOT/worktree-leases/$OWNER-$REPO"
 exec 8>"$PR_LOCK_FILE"
 if ! flock -n 8; then
   echo "review-bot: $OWNER/$REPO#$PR_NUMBER is already being reviewed; exiting"
@@ -139,39 +165,52 @@ if [[ "$FORCE" != "1" && "$LAST_REVIEWED" == "$HEAD_SHA" && "$LAST_BASE_SHA" == 
   exit 0
 fi
 
-REPO_DIR="$WORKSPACE/$REPO"
-if [[ ! -d "$REPO_DIR/.git" ]]; then
-  mkdir -p "$WORKSPACE"
-  git clone "git@github.com:$OWNER/$REPO.git" "$REPO_DIR"
-fi
-
-git -C "$REPO_DIR" fetch --prune origin \
-  "+refs/heads/*:refs/remotes/origin/*" \
-  "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/pr/$PR_NUMBER"
-git -C "$REPO_DIR" worktree prune
-
-DIFF_BASE_SHA="$(git -C "$REPO_DIR" merge-base "$BASE_SHA" "$HEAD_SHA")"
-
 SHORT_SHA="${HEAD_SHA:0:12}"
+REPO_DIR="$WORKSPACE/$REPO"
 WORKTREE="$WORKTREE_ROOT/$REPO/pr-$PR_NUMBER-$SHORT_SHA"
-if [[ -e "$WORKTREE" ]]; then
-  if git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    WORKTREE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
-    if [[ "$WORKTREE_HEAD" != "$HEAD_SHA" ]]; then
-      echo "review-bot: refusing to reuse worktree at unexpected head $WORKTREE" >&2
+WORKTREE_LEASE_FILE="$WORKTREE_LEASE_DIR/pr-$PR_NUMBER-$SHORT_SHA.lease"
+
+cleanup_worktree_lease() {
+  rm -f "${WORKTREE_LEASE_FILE:-}"
+}
+
+mkdir -p "$WORKTREE_LEASE_DIR"
+printf '%s\t%s\n' "$$" "$WORKTREE" >"$WORKTREE_LEASE_FILE"
+trap cleanup_worktree_lease EXIT
+
+{
+  flock 6
+  if [[ ! -d "$REPO_DIR/.git" ]]; then
+    mkdir -p "$WORKSPACE"
+    git clone "git@github.com:$OWNER/$REPO.git" "$REPO_DIR"
+  fi
+
+  git -C "$REPO_DIR" fetch --prune origin \
+    "+refs/heads/*:refs/remotes/origin/*" \
+    "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/pr/$PR_NUMBER"
+  git -C "$REPO_DIR" worktree prune
+
+  DIFF_BASE_SHA="$(git -C "$REPO_DIR" merge-base "$BASE_SHA" "$HEAD_SHA")"
+
+  if [[ -e "$WORKTREE" ]]; then
+    if git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      WORKTREE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
+      if [[ "$WORKTREE_HEAD" != "$HEAD_SHA" ]]; then
+        echo "review-bot: refusing to reuse worktree at unexpected head $WORKTREE" >&2
+        exit 1
+      fi
+    else
+      echo "review-bot: refusing to reuse non-worktree path $WORKTREE" >&2
       exit 1
     fi
   else
-    echo "review-bot: refusing to reuse non-worktree path $WORKTREE" >&2
-    exit 1
+    mkdir -p "$(dirname "$WORKTREE")"
+    git -C "$REPO_DIR" worktree add --detach "$WORKTREE" "$HEAD_SHA"
   fi
-else
-  mkdir -p "$(dirname "$WORKTREE")"
-  git -C "$REPO_DIR" worktree add --detach "$WORKTREE" "$HEAD_SHA"
-fi
-git -C "$WORKTREE" reset --hard "$HEAD_SHA" >/dev/null
-git -C "$WORKTREE" clean -ffdx >/dev/null
-prune_old_review_worktrees
+  git -C "$WORKTREE" reset --hard "$HEAD_SHA" >/dev/null
+  git -C "$WORKTREE" clean -ffdx >/dev/null
+  prune_old_review_worktrees
+} 6>"$REPO_WORKTREE_LOCK_FILE"
 
 CHECK_WORKDIR="$(jq -r --arg repo "$REPO" '.repos[$repo].workdir // "."' "$CONFIG")"
 RUN_DIR="$WORKTREE/$CHECK_WORKDIR"

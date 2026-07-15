@@ -21,7 +21,6 @@ require() {
 }
 
 require gh
-require git
 require jq
 
 OWNER="$(review_bot_owner "$CONFIG")"
@@ -30,7 +29,6 @@ WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONF
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
-RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" "$CONFIG" '.runtimeRoot' 'review-bot/.runtime')"
 
 META="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
   --json number,title,url,headRefOid,headRefName,baseRefName,isDraft,author)"
@@ -139,8 +137,8 @@ Posting commands:
 After posting, record the semantic review state so the watcher does not
 re-queue the same head/base:
 \`\`\`sh
-./review-bot/record-review.sh "$REPO" "$PR_NUMBER" findings REVIEW_OR_COMMENT_URL /path/to/review.md
-./review-bot/record-review.sh "$REPO" "$PR_NUMBER" clean REVIEW_OR_COMMENT_URL /path/to/review.md
+./review-bot/record-review.sh "$REPO" "$PR_NUMBER" findings REVIEW_OR_COMMENT_URL "$HEAD_SHA" "$BASE_SHA" /path/to/review.md
+./review-bot/record-review.sh "$REPO" "$PR_NUMBER" clean REVIEW_OR_COMMENT_URL "$HEAD_SHA" "$BASE_SHA" /path/to/review.md
 \`\`\`
 Use exactly one of those commands, matching the posted decision.
 

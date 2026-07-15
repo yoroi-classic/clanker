@@ -41,7 +41,7 @@ checkout: logs and state live under `review-bot/`, runtime files live under
 `review-bot/.runtime/`, and managed org repository clones live under
 `review-bot/.runtime/repos/`.
 
-Refresh the review queue and generated prompts once:
+Refresh the review queue and generate prompts once:
 
 ```sh
 ./review-bot/run-once.sh
