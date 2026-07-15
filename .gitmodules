@@ -1,0 +1,60 @@
+[submodule "repos/CIP4"]
+	path = repos/CIP4
+	url = git@github.com:yoroi-classic/CIP4.git
+	branch = master
+[submodule "repos/bring-chromeExtension"]
+	path = repos/bring-chromeExtension
+	url = git@github.com:yoroi-classic/bring-chromeExtension.git
+	branch = main
+[submodule "repos/cardano-serialization-lib"]
+	path = repos/cardano-serialization-lib
+	url = git@github.com:yoroi-classic/cardano-serialization-lib.git
+	branch = master
+[submodule "repos/cardano-wallet-backend"]
+	path = repos/cardano-wallet-backend
+	url = git@github.com:yoroi-classic/cardano-wallet-backend.git
+	branch = development
+[submodule "repos/cip14-js"]
+	path = repos/cip14-js
+	url = git@github.com:yoroi-classic/cip14-js.git
+	branch = master
+[submodule "repos/coin-selection"]
+	path = repos/coin-selection
+	url = git@github.com:yoroi-classic/coin-selection.git
+	branch = master
+[submodule "repos/cross-csl"]
+	path = repos/cross-csl
+	url = git@github.com:yoroi-classic/cross-csl.git
+	branch = main
+[submodule "repos/csl-mobile-bridge"]
+	path = repos/csl-mobile-bridge
+	url = git@github.com:yoroi-classic/csl-mobile-bridge.git
+	branch = main
+[submodule "repos/message-signing"]
+	path = repos/message-signing
+	url = git@github.com:yoroi-classic/message-signing.git
+	branch = master
+[submodule "repos/trezor-connect-flow"]
+	path = repos/trezor-connect-flow
+	url = git@github.com:yoroi-classic/trezor-connect-flow.git
+	branch = main
+[submodule "repos/webpack-httpolyglot-server"]
+	path = repos/webpack-httpolyglot-server
+	url = git@github.com:yoroi-classic/webpack-httpolyglot-server.git
+	branch = master
+[submodule "repos/yoroi"]
+	path = repos/yoroi
+	url = git@github.com:yoroi-classic/yoroi.git
+	branch = develop
+[submodule "repos/yoroi-config"]
+	path = repos/yoroi-config
+	url = git@github.com:yoroi-classic/yoroi-config.git
+	branch = main
+[submodule "repos/yoroi-frontend"]
+	path = repos/yoroi-frontend
+	url = git@github.com:yoroi-classic/yoroi-frontend.git
+	branch = develop
+[submodule "repos/yoroi-graphql-migration-backend"]
+	path = repos/yoroi-graphql-migration-backend
+	url = git@github.com:yoroi-classic/yoroi-graphql-migration-backend.git
+	branch = master

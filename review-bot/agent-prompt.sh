@@ -25,7 +25,8 @@ require jq
 
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
-WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONFIG" '.workspace' 'review-bot/.runtime/repos')"
+WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONFIG" '.workspace' 'repos')"
+REPO_DIR="$(review_bot_repo_dir "$REPO_ROOT" "$WORKSPACE" "$CONFIG" "$REPO")"
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
@@ -74,6 +75,7 @@ Context:
 - Head: \`$HEAD_REF\` at \`$HEAD_SHA\`
 - Clanker checkout: \`$REPO_ROOT\`
 - Managed repo workspace: \`$WORKSPACE\`
+- Base repo checkout: \`$REPO_DIR\`
 - Check worktrees: \`$WORKTREE_ROOT\`
 - Logs: \`$LOG_ROOT\`
 - State file: \`$STATE_FILE\`

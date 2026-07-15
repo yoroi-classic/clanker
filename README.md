@@ -1,52 +1,103 @@
-# clanker
+# Clanker
 
-Portable review-bot runner for GitHub organizations.
+Clanker is the top-level development workspace for the `yoroi-classic`
+organization. It pins every other organization repository as a submodule under
+`repos/`, giving humans and coding agents one checkout for cross-repository
+discovery, implementation, testing, and review.
 
-Clanker watches pull requests where a configured reviewer has been requested and
-prepares review-agent prompts. The review agent uses GitHub CI/check status as
-the build/test signal, runs local review-specific scans, inspects the code, then
-posts findings or approves clean PRs with a `No issues found for <sha>.` review
-body.
+The repository also contains `review-bot/`, the local pull-request discovery
+and evidence tooling used by semantic review agents.
 
-## Quick Start
+## Get the complete workspace
 
-Requirements:
-
-- `gh` authenticated with access to the target organization
-- `git`, `jq`, `flock`, and `timeout`
-- the language/toolchain dependencies only for any optional local review-specific
-  probes you configure
-
-Refresh the review queue and generated prompts once:
+For a new checkout:
 
 ```sh
-./review-bot/run-once.sh
+git clone --recurse-submodules git@github.com:yoroi-classic/clanker.git
+cd clanker
 ```
 
-Start continuous polling:
+For an existing checkout:
 
 ```sh
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+Submodules are pinned by the `clanker` commit, so every checkout starts from a
+reproducible organization-wide snapshot. Their `branch` entries in
+`.gitmodules` track `main` for repositories whose default branch is `main` and
+otherwise follow the repository's current default branch:
+
+| Branch | Repositories |
+| --- | --- |
+| `development` | `cardano-wallet-backend` |
+| `develop` | `yoroi`, `yoroi-frontend` |
+| `master` | `CIP4`, `cardano-serialization-lib`, `cip14-js`, `coin-selection`, `message-signing`, `webpack-httpolyglot-server`, `yoroi-graphql-migration-backend` |
+
+All other submodules track `main`.
+
+## Work across repositories
+
+Each directory under `repos/` is an independent Git repository with its own
+history, branches, tooling, and contribution rules. Before changing one, read
+its local documentation and `AGENTS.md`, if present.
+
+Freshly initialized submodules may be in detached-HEAD state. Switch to a local
+branch before committing:
+
+```sh
+git -C repos/yoroi switch develop
+git -C repos/cross-csl switch main
+```
+
+For a cross-repository change:
+
+1. Create an appropriate branch in every affected submodule.
+2. Implement and verify each repository according to its own workflow.
+3. Commit and publish changes in each submodule repository.
+4. Commit the updated submodule pointers in `clanker` last.
+
+Useful workspace commands:
+
+```sh
+# Show the pinned commit and checkout state for every repository.
+git submodule status --recursive
+
+# Find uncommitted work throughout the workspace.
+git submodule foreach --recursive 'git status --short'
+
+# Advance submodules to the configured remote tracking branches.
+git submodule update --remote --recursive
+```
+
+`git submodule update --remote` changes the organization snapshot recorded by
+`clanker`. Review those pointer changes and commit them intentionally; do not
+run it as a routine prerequisite for unrelated work.
+
+## Review bot
+
+The checked-in review-bot configuration uses `repos/` as its base-checkout
+workspace. Pull-request worktrees and other disposable data stay under
+`review-bot/.runtime/`, keeping the submodules suitable for normal development.
+
+Requirements include authenticated `gh`, plus `git`, `jq`, `flock`, and
+`timeout`.
+
+```sh
+# Refresh the requested-review queue once.
+./review-bot/run-once.sh
+
+# Run the watcher in the background and inspect it.
 ./review-bot/start.sh
 ./review-bot/status.sh
-```
 
-Stop continuous polling:
-
-```sh
+# Stop it explicitly.
 ./review-bot/stop.sh
 ```
 
-## Configuration
-
-Defaults are clone-local:
-
-- `owner`: `yoroi-classic`, overridable with `REVIEW_BOT_OWNER=<org>`
-- `reviewer`: authenticated `gh` user, overridable with
-  `REVIEW_BOT_REVIEWER=<login>`
-- managed repo workspace: `review-bot/.runtime/repos/`, overridable with
-  `REVIEW_BOT_WORKSPACE=<path>`
-
-Common examples:
+The default organization is `yoroi-classic`, and the default reviewer is the
+authenticated GitHub user. Common overrides are:
 
 ```sh
 REVIEW_BOT_OWNER=some-org ./review-bot/run-once.sh
@@ -54,4 +105,5 @@ REVIEW_BOT_REVIEWER=alice ./review-bot/run-once.sh
 REVIEW_BOT_WORKSPACE=/path/to/org-repos ./review-bot/start.sh
 ```
 
-See `review-bot/README.md` for detailed operation notes.
+See [`review-bot/README.md`](review-bot/README.md) for the evidence harness,
+queue, posting, state, and operating details.
