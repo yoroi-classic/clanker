@@ -23,6 +23,9 @@ Run the session launcher from the `clanker` checkout:
 ./coding-bot/bin/start.sh
 ```
 
+If startup says the checkout is behind upstream, make the next turn update
+`clanker` with `git pull --ff-only` and rerun startup before taking new work.
+
 Render a worker scaling plan whenever the target worker count changes:
 
 ```sh

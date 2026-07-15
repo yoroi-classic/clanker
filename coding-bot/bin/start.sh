@@ -45,12 +45,65 @@ print_graphql() {
   ' || printf 'Failed to fetch live GitHub queue.\n'
 }
 
+print_self_update_status() {
+  printf '\n## Clanker Self-Update\n\n'
+
+  local marker="$RUNTIME_ROOT/clanker-update-needed"
+  local upstream
+  upstream="$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  if [[ -z "$upstream" ]]; then
+    rm -f "$marker"
+    printf 'No upstream is configured for this checkout; skipping self-update check.\n'
+    return 0
+  fi
+
+  local upstream_remote upstream_branch upstream_ref
+  upstream_remote="${upstream%%/*}"
+  upstream_branch="${upstream#*/}"
+  upstream_ref="refs/remotes/$upstream"
+
+  if ! git -C "$ROOT" fetch --quiet "$upstream_remote" "refs/heads/$upstream_branch:$upstream_ref"; then
+    printf 'Could not fetch upstream `%s`; check manually before relying on local bot instructions.\n' "$upstream"
+    return 0
+  fi
+
+  local local_sha upstream_sha merge_base
+  local_sha="$(git -C "$ROOT" rev-parse HEAD)"
+  upstream_sha="$(git -C "$ROOT" rev-parse "$upstream")"
+  merge_base="$(git -C "$ROOT" merge-base HEAD "$upstream")"
+
+  if [[ "$local_sha" == "$upstream_sha" ]]; then
+    rm -f "$marker"
+    printf 'This clanker checkout is current with `%s`.\n' "$upstream"
+  elif [[ "$local_sha" == "$merge_base" ]]; then
+    {
+      printf 'git pull --ff-only\n'
+      printf './coding-bot/bin/start.sh\n'
+    } >"$marker"
+    printf 'This clanker checkout is behind `%s`.\n' "$upstream"
+    printf 'Next turn first action: run `git pull --ff-only`, then rerun `./coding-bot/bin/start.sh`.\n'
+    printf 'Marker written to `%s`.\n' "${marker#"$ROOT/"}"
+  elif [[ "$upstream_sha" == "$merge_base" ]]; then
+    rm -f "$marker"
+    printf 'This clanker checkout is ahead of `%s`; push or finish local work before updating.\n' "$upstream"
+  else
+    {
+      printf 'git status --short --branch\n'
+      printf 'git pull --ff-only\n'
+    } >"$marker"
+    printf 'This clanker checkout has diverged from `%s`; resolve manually before taking new work.\n' "$upstream"
+    printf 'Marker written to `%s`.\n' "${marker#"$ROOT/"}"
+  fi
+}
+
 cat <<'HEADER'
 # Yoroi Classic Coding Bot Bootstrap
 
 Use this as the starting context for a coding-agent session. Refresh live state
 before changing code, and keep assigned work moving before taking new work.
 HEADER
+
+print_self_update_status
 
 printf '\n## Workspace Status\n\n'
 git -C "$ROOT" status --short --branch || true

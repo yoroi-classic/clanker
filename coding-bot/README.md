@@ -22,9 +22,11 @@ You can also include a worker target in the startup output:
 CODING_BOT_WORKERS=4 CODING_BOT_CURRENT_WORKERS=2 ./coding-bot/bin/start.sh
 ```
 
-The launcher prints the static operating guidance and, when `gh` is available,
-live assigned issues and authored pull requests. The live queue must always win
-over stale chat history.
+The launcher first checks whether the `clanker` checkout is behind its upstream
+and writes `coding-bot/.runtime/clanker-update-needed` when the next turn should
+pull and rerun startup. It then prints the static operating guidance and, when
+`gh` is available, live assigned issues and authored pull requests. The live
+queue must always win over stale chat history.
 
 Generated scratch files belong under `coding-bot/.runtime/` by default. Override
 that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
