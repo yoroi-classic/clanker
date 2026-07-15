@@ -3,56 +3,61 @@
 At session start, refresh live state. Do not rely on stale issue numbers from a
 previous chat session.
 
+Use GitHub REST JSON with `jq` for queue checks; avoid GraphQL for this workflow.
+
 ## Assigned Issues
 
 ```sh
-gh api graphql \
+gh api -X GET search/issues \
   -f q='org:yoroi-classic is:issue is:open assignee:@me' \
-  -f query='query($q: String!) {
-    search(query: $q, type: ISSUE, first: 100) {
-      nodes {
-        ... on Issue {
-          number
-          title
-          url
-          updatedAt
-          repository { nameWithOwner }
-          labels(first: 20) { nodes { name } }
-        }
-      }
-    }
-  }'
+  -f per_page=100 \
+  --jq '.items[]
+    | {
+        repo: (.repository_url | sub("^https://api.github.com/repos/"; "")),
+        number,
+        title,
+        url: .html_url,
+        updated_at
+      }'
 ```
 
 ## Authored Pull Requests
 
 ```sh
-gh api graphql \
+gh api -X GET search/issues \
   -f q='org:yoroi-classic is:pr is:open author:@me' \
-  -f query='query($q: String!) {
-    search(query: $q, type: ISSUE, first: 100) {
-      nodes {
-        ... on PullRequest {
-          number
-          title
-          url
-          updatedAt
-          reviewDecision
-          headRefName
-          baseRefName
-          repository { nameWithOwner }
-          commits(last: 1) {
-            nodes {
-              commit {
-                oid
-                statusCheckRollup { state }
-              }
-            }
-          }
-        }
-      }
-    }
+  -f per_page=100 \
+  --jq '.items[]
+    | {
+        repo: (.repository_url | sub("^https://api.github.com/repos/"; "")),
+        number,
+        title,
+        url: .html_url,
+        updated_at,
+        draft: .draft
+      }'
+```
+
+For each authored PR, follow the search result with REST detail calls before
+classifying it:
+
+```sh
+gh api repos/OWNER/REPO/pulls/PR_NUMBER \
+  --jq '{
+    head: .head.sha,
+    draft,
+    mergeable,
+    mergeable_state,
+    requested_reviewers: [.requested_reviewers[].login]
   }'
+
+gh api repos/OWNER/REPO/commits/HEAD_SHA/check-runs \
+  --jq '{
+    checks: [.check_runs[] | {name, status, conclusion}]
+  }'
+
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
+  --jq '[.[] | {user: .user.login, state, submitted_at, commit_id}]'
 ```
 
 ## Work Order

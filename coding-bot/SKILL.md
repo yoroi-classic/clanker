@@ -23,6 +23,12 @@ Run the session launcher from the `clanker` checkout:
 ./coding-bot/bin/start.sh
 ```
 
+If startup says the checkout is behind `origin/main`, make the next turn update
+`clanker` with `git pull --ff-only` and rerun startup before taking new work.
+If startup says the checkout has diverged, resolve the local branch manually
+before taking new work. Set `CODING_BOT_UPDATE_REF` only when a different remote
+branch is the intended runtime source.
+
 Render a worker scaling plan whenever the target worker count changes:
 
 ```sh
