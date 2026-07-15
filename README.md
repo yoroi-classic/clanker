@@ -126,10 +126,10 @@ Render a worker-pool scaling plan:
 ./coding-bot/bin/worker-plan.sh 4 2
 ```
 
-The coding bot prints the shared standards and, when `gh` is authenticated, the
-live assigned issue and authored PR queues. Keep top-level `standards/` current
-as operating practices and recurring gotchas evolve; both `coding-bot` and
-`review-bot` consume those files.
+The coding bot prints the static operating guidance and, when `gh` is
+authenticated, the live assigned issue and authored PR queues. Keep top-level
+`standards/` current as operating practices and recurring gotchas evolve; both
+`coding-bot` and `review-bot` consume those files.
 
 By default, coding-bot scratch files live under `coding-bot/.runtime/`.
 Override with `CODING_BOT_RUNTIME_ROOT` if a session needs another bot-owned
