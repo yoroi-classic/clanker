@@ -61,60 +61,64 @@ print_live_queue() {
 
   local assigned_query="org:$ORG is:issue is:open assignee:@me"
   local prs_query="org:$ORG is:pr is:open author:@me"
-  local issue_graphql
-  local pr_graphql
-
-  read -r -d '' issue_graphql <<'GRAPHQL' || true
-query($q: String!) {
-  search(query: $q, type: ISSUE, first: 100) {
-    nodes {
-      ... on Issue {
-        number
-        title
-        url
-        updatedAt
-        repository { nameWithOwner }
-      }
-    }
-  }
-}
-GRAPHQL
-
-  read -r -d '' pr_graphql <<'GRAPHQL' || true
-query($q: String!) {
-  search(query: $q, type: ISSUE, first: 100) {
-    nodes {
-      ... on PullRequest {
-        number
-        title
-        url
-        updatedAt
-        reviewDecision
-        repository { nameWithOwner }
-        commits(last: 1) {
-          nodes {
-            commit {
-              oid
-              statusCheckRollup { state }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-GRAPHQL
+  local rows
 
   printf '\n## Authored Pull Requests\n\n'
-  gh api graphql -f q="$prs_query" -f query="$pr_graphql" --jq '
-    .data.search.nodes[]
-    | "- \(.repository.nameWithOwner)#\(.number): \(.title) [review=\(.reviewDecision // "none"), checks=\(.commits.nodes[0].commit.statusCheckRollup.state // "unknown")] \(.url)"
-  ' || printf 'Failed to fetch authored PRs.\n'
+  if ! rows="$(gh api -X GET search/issues -f q="$prs_query" -f per_page=100 --jq '
+    .items[]
+    | [
+        (.repository_url | sub("^https://api.github.com/repos/"; "")),
+        (.number | tostring),
+        .title,
+        .html_url
+      ]
+    | @tsv
+  ')"; then
+    printf 'Failed to fetch authored PRs.\n'
+  elif [[ -z "$rows" ]]; then
+    printf 'No matching pull requests found.\n'
+  else
+    while IFS=$'\t' read -r repo number pr_title url; do
+      local pr_details head_sha draft reviewers checks reviews head_short
+      if ! pr_details="$(gh api "repos/$repo/pulls/$number" --jq '
+        [
+          .head.sha,
+          (.draft | tostring),
+          ([.requested_reviewers[].login] | if length == 0 then "none" else join(",") end)
+        ]
+        | @tsv
+      ' 2>/dev/null)"; then
+        printf -- '- %s#%s: %s [details=unavailable] %s\n' "$repo" "$number" "$pr_title" "$url"
+        continue
+      fi
+
+      IFS=$'\t' read -r head_sha draft reviewers <<<"$pr_details"
+      head_short="${head_sha:0:7}"
+      checks="$(gh api "repos/$repo/commits/$head_sha/check-runs" --jq '
+        (.check_runs | map(.conclusion // .status)) as $states
+        | "checks="
+          + (([$states[] | select(. == "failure" or . == "cancelled" or . == "timed_out" or . == "action_required")] | length) | tostring)
+          + " fail/"
+          + (([$states[] | select(. == "queued" or . == "in_progress" or . == "waiting" or . == "requested" or . == "pending")] | length) | tostring)
+          + " pending/"
+          + (($states | length) | tostring)
+          + " total"
+      ' 2>/dev/null || printf 'checks=unknown')"
+      reviews="$(gh api "repos/$repo/pulls/$number/reviews" --jq '
+        [.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED") | "\(.user.login):\(.state)"]
+        | unique
+        | if length == 0 then "reviews=none" else "reviews=" + join(",") end
+      ' 2>/dev/null || printf 'reviews=unknown')"
+
+      printf -- '- %s#%s: %s [head=%s, draft=%s, requested=%s, %s, %s] %s\n' \
+        "$repo" "$number" "$pr_title" "$head_short" "$draft" "$reviewers" "$reviews" "$checks" "$url"
+    done <<<"$rows"
+  fi
 
   printf '\n## Assigned Issues\n\n'
-  gh api graphql -f q="$assigned_query" -f query="$issue_graphql" --jq '
-    .data.search.nodes[]
-    | "- \(.repository.nameWithOwner)#\(.number): \(.title) \(.url)"
+  gh api -X GET search/issues -f q="$assigned_query" -f per_page=100 --jq '
+    .items[]
+    | "- \(.repository_url | sub("^https://api.github.com/repos/"; ""))#\(.number): \(.title) \(.html_url)"
   ' || printf 'Failed to fetch assigned issues.\n'
 }
 
