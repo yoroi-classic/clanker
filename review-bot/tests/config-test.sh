@@ -43,6 +43,13 @@ rc="$?"
 set -e
 [[ "$rc" -eq 2 ]] || fail "negative watchLogRetain should exit 2, got $rc"
 
+jq '.maintenancePromptDays = -1' "$BOT_DIR/config.json" >"$TMP_ROOT/invalid-maintenance-retention.json"
+set +e
+"$BOT_DIR/validate-config.sh" "$TMP_ROOT/invalid-maintenance-retention.json" >"$TMP_ROOT/output" 2>&1
+rc="$?"
+set -e
+[[ "$rc" -eq 2 ]] || fail "negative maintenance retention should exit 2, got $rc"
+
 jq '.localChecks = [1]' "$BOT_DIR/config.json" >"$TMP_ROOT/invalid-checks.json"
 set +e
 "$BOT_DIR/validate-config.sh" "$TMP_ROOT/invalid-checks.json" >"$TMP_ROOT/output" 2>&1

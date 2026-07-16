@@ -54,19 +54,7 @@ echo "review-bot: log $WATCH_LOG"
 if [[ ! -f "$HEALTH_FILE" ]]; then
   echo "review-bot: health unavailable; no completed poll recorded at $HEALTH_FILE"
   health_rc=1
-elif ! jq -e '
-  def nonnegative_integer:
-    type == "number" and . == floor and . >= 0;
-  type == "object"
-  and (.status == "ok" or .status == "error")
-  and (.last_attempt_at | type == "string")
-  and (.last_attempt_epoch | nonnegative_integer)
-  and (.last_success_at == null or (.last_success_at | type == "string"))
-  and (.last_success_epoch == null or (.last_success_epoch | nonnegative_integer))
-  and (.last_error == null or (.last_error | type == "string"))
-  and (.consecutive_failures | nonnegative_integer)
-  and (.queue_count | nonnegative_integer)
-' "$HEALTH_FILE" >/dev/null 2>&1; then
+elif ! review_bot_health_file_is_valid "$HEALTH_FILE"; then
   echo "review-bot: health error; invalid health file at $HEALTH_FILE"
   health_rc=1
 else
