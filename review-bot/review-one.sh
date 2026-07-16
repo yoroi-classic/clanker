@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 if [[ "$#" -lt 2 ]]; then
   echo "usage: $0 <repo> <pr-number>" >&2
@@ -12,9 +13,12 @@ source "$SCRIPT_DIR/lib/paths.sh"
 REPO_ROOT="$(review_bot_repo_root "$SCRIPT_DIR")"
 REPO="$1"
 PR_NUMBER="$2"
-POST="${REVIEW_BOT_POST:-0}"
 FORCE="${REVIEW_BOT_FORCE:-0}"
 RECORD_DRY_RUN="${REVIEW_BOT_RECORD_DRY_RUN:-0}"
+
+if [[ "${REVIEW_BOT_POST:-0}" != "0" ]]; then
+  echo "review-bot: REVIEW_BOT_POST is ignored; review-one.sh is permanently evidence-only" >&2
+fi
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -31,22 +35,34 @@ require timeout
 
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
+review_bot_validate_owner "$OWNER"
+review_bot_validate_repo "$REPO"
+review_bot_validate_pr_number "$PR_NUMBER"
 WORKSPACE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKSPACE:-}" "$CONFIG" '.workspace' 'repos')"
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" "$CONFIG" '.runtimeRoot' 'review-bot/.runtime')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 STATE_LOCK_FILE="${REVIEW_BOT_STATE_LOCK:-$RUNTIME_ROOT/state.lock}"
-COMMENT_MODE="$(jq -r '.commentMode // "comment"' "$CONFIG")"
 INCLUDE_DRAFTS="$(jq -r '.includeDrafts // false' "$CONFIG")"
 SKIP_SELF_AUTHORED="$(jq -r '.skipSelfAuthored // true' "$CONFIG")"
 CHECK_TIMEOUT_SECONDS="${REVIEW_BOT_CHECK_TIMEOUT_SECONDS:-$(jq -r '.checkTimeoutSeconds // 3600' "$CONFIG")}"
 WORKTREE_RETAIN="${REVIEW_BOT_WORKTREE_RETAIN:-$(jq -r '.worktreeRetain // 8' "$CONFIG")}"
+LOCAL_CHECK_NETWORK="${REVIEW_BOT_LOCAL_CHECK_NETWORK:-$(jq -r '.localCheckNetwork // "deny"' "$CONFIG")}"
+LOCAL_CHECK_CPU_SECONDS="${REVIEW_BOT_LOCAL_CHECK_CPU_SECONDS:-$(jq -r '.localCheckCpuSeconds // 600' "$CONFIG")}"
+LOCAL_CHECK_MEMORY_BYTES="${REVIEW_BOT_LOCAL_CHECK_MEMORY_BYTES:-$(jq -r '.localCheckMemoryBytes // 1073741824' "$CONFIG")}"
+LOCAL_CHECK_WORKSPACE_BYTES="${REVIEW_BOT_LOCAL_CHECK_WORKSPACE_BYTES:-$(jq -r '.localCheckWorkspaceBytes // 2147483648' "$CONFIG")}"
+LOCAL_CHECK_SCRATCH_BYTES="${REVIEW_BOT_LOCAL_CHECK_SCRATCH_BYTES:-$(jq -r '.localCheckScratchBytes // 268435456' "$CONFIG")}"
+LOCAL_CHECK_MAX_PROCESSES="${REVIEW_BOT_LOCAL_CHECK_MAX_PROCESSES:-$(jq -r '.localCheckMaxProcesses // 128' "$CONFIG")}"
+LOCAL_CHECK_MAX_OPEN_FILES="${REVIEW_BOT_LOCAL_CHECK_MAX_OPEN_FILES:-$(jq -r '.localCheckMaxOpenFiles // 256' "$CONFIG")}"
+LOCAL_CHECK_MAX_OUTPUT_BYTES="${REVIEW_BOT_LOCAL_CHECK_MAX_OUTPUT_BYTES:-$(jq -r '.localCheckMaxOutputBytes // 10485760' "$CONFIG")}"
+BWRAP="${REVIEW_BOT_BWRAP:-bwrap}"
 
 mkdir -p "$WORKTREE_ROOT" "$RUNTIME_ROOT" "$LOG_ROOT" "$(dirname "$STATE_FILE")" "$(dirname "$STATE_LOCK_FILE")"
 if [[ ! -f "$STATE_FILE" ]]; then
   printf '{}\n' >"$STATE_FILE"
 fi
+chmod 600 "$STATE_FILE"
 
 is_review_requested_for_bot() {
   local pull
@@ -133,6 +149,7 @@ URL="$(jq -r '.url' <<<"$META")"
 IS_DRAFT="$(jq -r '.isDraft' <<<"$META")"
 AUTHOR="$(jq -r '.author.login' <<<"$META")"
 KEY="$OWNER/$REPO#$PR_NUMBER"
+review_bot_validate_sha head "$HEAD_SHA"
 
 if [[ "$SKIP_SELF_AUTHORED" == "true" && "$AUTHOR" == "$REVIEWER" && "${REVIEW_BOT_INCLUDE_SELF_AUTHORED:-0}" != "1" ]]; then
   echo "review-bot: skipping self-authored PR $KEY"
@@ -158,6 +175,7 @@ else
 fi
 
 BASE_SHA="$(gh api "/repos/$OWNER/$REPO/pulls/$PR_NUMBER" --jq '.base.sha')"
+review_bot_validate_sha base "$BASE_SHA"
 LAST_REVIEWED="$(jq -r --arg key "$KEY" '.[$key].head_sha // empty' "$STATE_FILE")"
 LAST_BASE_SHA="$(jq -r --arg key "$KEY" '.[$key].base_sha // empty' "$STATE_FILE")"
 if [[ "$FORCE" != "1" && "$LAST_REVIEWED" == "$HEAD_SHA" && "$LAST_BASE_SHA" == "$BASE_SHA" ]]; then
@@ -213,11 +231,7 @@ trap cleanup_worktree_lease EXIT
 } 6>"$REPO_WORKTREE_LOCK_FILE"
 
 CHECK_WORKDIR="$(jq -r --arg repo "$REPO" '.repos[$repo].workdir // "."' "$CONFIG")"
-RUN_DIR="$WORKTREE/$CHECK_WORKDIR"
-if [[ ! -d "$RUN_DIR" ]]; then
-  echo "review-bot: configured workdir does not exist: $CHECK_WORKDIR" >&2
-  exit 1
-fi
+RUN_DIR="$(review_bot_safe_workdir "$WORKTREE" "$CHECK_WORKDIR")"
 
 mapfile -t LOCAL_CHECKS < <(
   jq -r --arg repo "$REPO" '
@@ -229,18 +243,45 @@ mapfile -t LOCAL_CHECKS < <(
   ' "$CONFIG"
 )
 
+case "$LOCAL_CHECK_NETWORK" in
+  deny|allow)
+    ;;
+  *)
+    echo "review-bot: localCheckNetwork must be deny or allow, got: $LOCAL_CHECK_NETWORK" >&2
+    exit 2
+    ;;
+esac
+
+for limit_name in \
+  CHECK_TIMEOUT_SECONDS \
+  LOCAL_CHECK_CPU_SECONDS \
+  LOCAL_CHECK_MEMORY_BYTES \
+  LOCAL_CHECK_WORKSPACE_BYTES \
+  LOCAL_CHECK_SCRATCH_BYTES \
+  LOCAL_CHECK_MAX_PROCESSES \
+  LOCAL_CHECK_MAX_OPEN_FILES \
+  LOCAL_CHECK_MAX_OUTPUT_BYTES; do
+  limit_value="${!limit_name}"
+  if [[ ! "$limit_value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "review-bot: $limit_name must be a positive integer, got: $limit_value" >&2
+    exit 2
+  fi
+done
+
 LOG_DIR="$LOG_ROOT/$REPO/pr-$PR_NUMBER-$SHORT_SHA"
 mkdir -p "$LOG_DIR"
-CHECK_ENV_ROOT="$RUNTIME_ROOT/check-env/$REPO/pr-$PR_NUMBER-$SHORT_SHA"
 REPORT="$LOG_DIR/report.md"
 RESULTS_JSON="$LOG_DIR/results.json"
 CI_REPORT="$LOG_DIR/ci-status.json"
 CI_ERROR_LOG="$LOG_DIR/ci-status.err"
 CI_STATUS="unavailable"
-CI_BLOCKS_APPROVAL=0
 FAILED_LABELS=()
 FAILED_LOGS=()
+INFRA_LABELS=()
+INFRA_LOGS=()
 PASSED=()
+UNTRUSTED_CHECKS_RAN=0
+NETWORK_ISOLATION="not-needed"
 
 safe_name() {
   printf '%s' "$1" | tr -cs '[:alnum:]_.=-' '_' | sed 's/^_//; s/_$//'
@@ -257,48 +298,159 @@ display_path() {
   esac
 }
 
-run_check() {
+run_builtin_check() {
   local label="$1"
   local command="$2"
   local workdir="${3:-$WORKTREE}"
-  local check_env="$CHECK_ENV_ROOT/$(safe_name "$label")"
   local log_file="$LOG_DIR/$(safe_name "$label").log"
+  local output_blocks="$(( (LOCAL_CHECK_MAX_OUTPUT_BYTES + 511) / 512 ))"
   local rc
 
   printf 'review-bot: running %s\n' "$label"
-  mkdir -p "$check_env/home" "$check_env/gh" "$check_env/xdg-config" "$check_env/xdg-cache"
   if (
     cd "$workdir"
-    env \
-      -u GH_TOKEN \
-      -u GITHUB_TOKEN \
-      -u GH_ENTERPRISE_TOKEN \
-      -u GITHUB_ENTERPRISE_TOKEN \
-      -u GIT_ASKPASS \
-      -u GIT_SSH_COMMAND \
-      -u SSH_ASKPASS \
-      -u SSH_AUTH_SOCK \
-      -u NPM_TOKEN \
-      -u NODE_AUTH_TOKEN \
-      -u YARN_NPM_AUTH_TOKEN \
-      HOME="$check_env/home" \
-      GH_CONFIG_DIR="$check_env/gh" \
-      XDG_CONFIG_HOME="$check_env/xdg-config" \
-      XDG_CACHE_HOME="$check_env/xdg-cache" \
+    ulimit -f "$output_blocks" || exit 125
+    timeout --kill-after=30s "${CHECK_TIMEOUT_SECONDS}s" /bin/bash --noprofile --norc -c "$command"
+  ) >"$log_file" 2>&1; then
+    PASSED+=("$label")
+  else
+    rc="$?"
+    if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
+      printf '\nreview-bot: trusted evidence check timed out after %s seconds\n' "$CHECK_TIMEOUT_SECONDS" >>"$log_file"
+      INFRA_LABELS+=("$label")
+      INFRA_LOGS+=("$log_file")
+    elif [[ "$rc" -eq 125 || "$rc" -eq 153 ]]; then
+      printf '\nreview-bot: trusted evidence output limit could not be applied or was exceeded\n' >>"$log_file"
+      INFRA_LABELS+=("$label")
+      INFRA_LOGS+=("$log_file")
+    else
+      printf '\nreview-bot: check exited with status %s\n' "$rc" >>"$log_file"
+      FAILED_LABELS+=("$label")
+      FAILED_LOGS+=("$log_file")
+    fi
+  fi
+}
+
+run_local_check() {
+  local label="$1"
+  local command="$2"
+  local workdir="${3:-$WORKTREE}"
+  local log_file="$LOG_DIR/$(safe_name "$label").log"
+  local output_blocks="$(( (LOCAL_CHECK_MAX_OUTPUT_BYTES + 511) / 512 ))"
+  local memory_kib="$(( (LOCAL_CHECK_MEMORY_BYTES + 1023) / 1024 ))"
+  local sandbox_workdir="/worktree${workdir#"$WORKTREE"}"
+  local rc
+  local sandbox=(
+    "$BWRAP"
+    --die-with-parent
+    --new-session
+    --unshare-pid
+    --unshare-ipc
+    --unshare-uts
+    --size 16777216
+    --tmpfs /
+    --ro-bind /usr /usr
+    --symlink usr/bin /bin
+    --symlink usr/lib /lib
+    --symlink usr/sbin /sbin
+    --proc /proc
+    --dev /dev
+    --size "$LOCAL_CHECK_SCRATCH_BYTES"
+    --tmpfs /tmp
+    --ro-bind "$WORKTREE" /source
+    --size "$LOCAL_CHECK_WORKSPACE_BYTES"
+    --tmpfs /worktree
+    --size "$LOCAL_CHECK_SCRATCH_BYTES"
+    --tmpfs /check-env
+  )
+
+  UNTRUSTED_CHECKS_RAN=1
+  printf 'review-bot: running untrusted local check %s\n' "$label"
+
+  if ! command -v "$BWRAP" >/dev/null 2>&1; then
+    printf 'review-bot: filesystem isolation requires bwrap; refusing to execute PR-controlled code\n' >"$log_file"
+    INFRA_LABELS+=("$label")
+    INFRA_LOGS+=("$log_file")
+    NETWORK_ISOLATION="unavailable"
+    return
+  fi
+  if [[ -e /lib64 ]]; then
+    sandbox+=(--ro-bind /lib64 /lib64)
+  fi
+  if [[ "$LOCAL_CHECK_NETWORK" == "deny" ]]; then
+    sandbox+=(--unshare-net)
+    NETWORK_ISOLATION="denied"
+  else
+    NETWORK_ISOLATION="explicitly-allowed"
+  fi
+  sandbox+=(-- /bin/true)
+  if ! "${sandbox[@]}" >/dev/null 2>&1; then
+    printf 'review-bot: configured filesystem/network isolation is unavailable; refusing to execute PR-controlled code\n' >"$log_file"
+    INFRA_LABELS+=("$label")
+    INFRA_LOGS+=("$log_file")
+    NETWORK_ISOLATION="unavailable"
+    return
+  fi
+  sandbox=("${sandbox[@]:0:${#sandbox[@]}-2}")
+
+  if (
+    env -i \
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+      LANG=C.UTF-8 \
+      LC_ALL=C.UTF-8 \
+      HOME=/check-env/home \
+      TMPDIR=/check-env/tmp \
+      GH_CONFIG_DIR=/check-env/gh \
+      XDG_CONFIG_HOME=/check-env/xdg-config \
+      XDG_CACHE_HOME=/check-env/xdg-cache \
       GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
-      timeout --kill-after=30s "${CHECK_TIMEOUT_SECONDS}s" /bin/bash -lc "$command"
+      REVIEW_BOT_BASE_SHA="$BASE_SHA" \
+      REVIEW_BOT_DIFF_BASE_SHA="$DIFF_BASE_SHA" \
+      REVIEW_BOT_HEAD_SHA="$HEAD_SHA" \
+      REVIEW_BOT_OWNER="$OWNER" \
+      REVIEW_BOT_REPO="$REPO" \
+      REVIEW_BOT_PR_NUMBER="$PR_NUMBER" \
+      REVIEW_BOT_WORKTREE=/worktree \
+      REVIEW_BOT_CHECK_COMMAND="$command" \
+      REVIEW_BOT_CHECK_WORKDIR="$sandbox_workdir" \
+      REVIEW_BOT_CPU_SECONDS="$LOCAL_CHECK_CPU_SECONDS" \
+      REVIEW_BOT_MEMORY_KIB="$memory_kib" \
+      REVIEW_BOT_MAX_PROCESSES="$LOCAL_CHECK_MAX_PROCESSES" \
+      REVIEW_BOT_MAX_OPEN_FILES="$LOCAL_CHECK_MAX_OPEN_FILES" \
+      REVIEW_BOT_MAX_OUTPUT_BLOCKS="$output_blocks" \
+      timeout --kill-after=30s "${CHECK_TIMEOUT_SECONDS}s" \
+      "${sandbox[@]}" \
+      /bin/bash --noprofile --norc -c '
+        mkdir -p /check-env/home /check-env/gh /check-env/xdg-config /check-env/xdg-cache /check-env/tmp ||
+          { echo "review-bot: failed to prepare isolated scratch directories"; exit 125; }
+        cp -a /source/. /worktree/ || { echo "review-bot: failed to prepare isolated worktree"; exit 125; }
+        cd "$REVIEW_BOT_CHECK_WORKDIR" || { echo "review-bot: isolated workdir is unavailable"; exit 125; }
+        ulimit -c 0 || { echo "review-bot: failed to disable core dumps"; exit 125; }
+        ulimit -t "$REVIEW_BOT_CPU_SECONDS" || { echo "review-bot: failed to set CPU limit"; exit 125; }
+        ulimit -v "$REVIEW_BOT_MEMORY_KIB" || { echo "review-bot: failed to set memory limit"; exit 125; }
+        ulimit -u "$REVIEW_BOT_MAX_PROCESSES" || { echo "review-bot: failed to set process limit"; exit 125; }
+        ulimit -n "$REVIEW_BOT_MAX_OPEN_FILES" || { echo "review-bot: failed to set open-file limit"; exit 125; }
+        ulimit -f "$REVIEW_BOT_MAX_OUTPUT_BLOCKS" || { echo "review-bot: failed to set output limit"; exit 125; }
+        exec /bin/bash --noprofile --norc -c "$REVIEW_BOT_CHECK_COMMAND"
+      '
   ) >"$log_file" 2>&1; then
     PASSED+=("$label")
   else
     rc="$?"
     if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
       printf '\nreview-bot: check timed out after %s seconds\n' "$CHECK_TIMEOUT_SECONDS" >>"$log_file"
+      INFRA_LABELS+=("$label")
+      INFRA_LOGS+=("$log_file")
+    elif [[ "$rc" -eq 125 || "$rc" -eq 152 || "$rc" -eq 153 ]]; then
+      printf '\nreview-bot: a configured isolation or resource limit could not be applied or was exceeded\n' >>"$log_file"
+      INFRA_LABELS+=("$label")
+      INFRA_LOGS+=("$log_file")
     else
       printf '\nreview-bot: check exited with status %s\n' "$rc" >>"$log_file"
+      FAILED_LABELS+=("$label")
+      FAILED_LOGS+=("$log_file")
     fi
-    FAILED_LABELS+=("$label")
-    FAILED_LOGS+=("$log_file")
   fi
 }
 
@@ -312,7 +464,6 @@ capture_ci_status() {
 
   if ! ci_json="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" --json statusCheckRollup --jq '.statusCheckRollup' 2>"$CI_ERROR_LOG")"; then
     CI_STATUS="unavailable"
-    CI_BLOCKS_APPROVAL=1
     return 0
   fi
 
@@ -344,10 +495,8 @@ capture_ci_status() {
     CI_STATUS="no-checks"
   elif [[ "$failing" -gt 0 ]]; then
     CI_STATUS="failing"
-    CI_BLOCKS_APPROVAL=1
   elif [[ "$pending" -gt 0 || "$unknown" -gt 0 ]]; then
     CI_STATUS="pending"
-    CI_BLOCKS_APPROVAL=1
   else
     CI_STATUS="passing"
   fi
@@ -364,14 +513,16 @@ export REVIEW_BOT_SCRIPT_DIR="$SCRIPT_DIR"
 export REVIEW_BOT_WORKTREE="$WORKTREE"
 
 capture_ci_status
-run_check "git diff --check" "git diff --check $DIFF_BASE_SHA $HEAD_SHA" "$WORKTREE"
-run_check "pedantic wallet diff check" "$SCRIPT_DIR/pedantic-diff-check.sh" "$WORKTREE"
+run_builtin_check "git diff --check" "git diff --check $DIFF_BASE_SHA $HEAD_SHA" "$WORKTREE"
+run_builtin_check "pedantic wallet diff check" "$SCRIPT_DIR/pedantic-diff-check.sh" "$WORKTREE"
 for check in "${LOCAL_CHECKS[@]}"; do
-  run_check "$check" "$check" "$RUN_DIR"
+  run_local_check "$check" "$check" "$RUN_DIR"
 done
 
 STATUS="clean"
-if [[ "${#FAILED_LABELS[@]}" -gt 0 ]]; then
+if [[ "${#INFRA_LABELS[@]}" -gt 0 ]]; then
+  STATUS="inconclusive"
+elif [[ "${#FAILED_LABELS[@]}" -gt 0 ]]; then
   STATUS="findings"
 fi
 
@@ -382,6 +533,11 @@ fi
   printf 'Base/head: `%s` -> `%s`\n\n' "$BASE_REF" "$HEAD_REF"
   printf 'Diff base: `%s`\n\n' "$DIFF_BASE_SHA"
   printf 'GitHub CI/checks: `%s`.\n\n' "$CI_STATUS"
+  if [[ "$UNTRUSTED_CHECKS_RAN" == "1" ]]; then
+    printf 'PR-controlled local checks: enabled; network isolation: `%s`.\n\n' "$NETWORK_ISOLATION"
+  else
+    printf 'PR-controlled local checks: none configured.\n\n'
+  fi
   if [[ -s "$CI_REPORT" ]]; then
     if jq -e 'length > 0' "$CI_REPORT" >/dev/null; then
       printf 'CI rollup from GitHub:\n'
@@ -402,7 +558,7 @@ fi
     printf 'No local review-specific issues found for `%s`.\n\n' "$HEAD_SHA"
     printf 'Local review-specific checks run:\n'
     printf -- '- `%s`\n' "${PASSED[@]}"
-  else
+  elif [[ "$STATUS" == "findings" ]]; then
     printf 'Local review-specific issues found for `%s`:\n\n' "$HEAD_SHA"
     for index in "${!FAILED_LABELS[@]}"; do
       label="${FAILED_LABELS[$index]}"
@@ -415,6 +571,14 @@ fi
       printf 'Local checks that passed:\n'
       printf -- '- `%s`\n' "${PASSED[@]}"
     fi
+  else
+    printf 'Review evidence is inconclusive for `%s` because required isolation or resource controls failed:\n\n' "$HEAD_SHA"
+    for index in "${!INFRA_LABELS[@]}"; do
+      label="${INFRA_LABELS[$index]}"
+      log_file="${INFRA_LOGS[$index]}"
+      printf -- '- Infrastructure failure: `%s`\n' "$label"
+      printf '  Local log: `%s`\n\n' "$(display_path "$log_file")"
+    done
   fi
 } >"$REPORT"
 
@@ -424,38 +588,16 @@ jq -n \
   --arg base_sha "$BASE_SHA" \
   --arg status "$STATUS" \
   --arg ci_status "$CI_STATUS" \
+  --arg network_isolation "$NETWORK_ISOLATION" \
   --arg report "$REPORT" \
   --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{key:$key, head_sha:$head_sha, base_sha:$base_sha, review_kind:"check", status:$status, ci_status:$ci_status, report:$report, reviewed_at:$reviewed_at}' \
+  '{key:$key, head_sha:$head_sha, base_sha:$base_sha, review_kind:"check", status:$status, ci_status:$ci_status, network_isolation:$network_isolation, report:$report, reviewed_at:$reviewed_at}' \
   >"$RESULTS_JSON"
 
-COMMENT_URL=""
-if [[ "$POST" == "1" ]]; then
-  if [[ "$STATUS" == "clean" ]]; then
-    if [[ "$CI_BLOCKS_APPROVAL" == "1" ]]; then
-      COMMENT_URL="$(gh pr comment "$PR_NUMBER" -R "$OWNER/$REPO" --body-file "$REPORT")"
-      echo "review-bot: not approving $KEY because GitHub CI/checks are $CI_STATUS"
-    else
-      COMMENT_URL="$(gh api -X POST "/repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews" \
-        -f event=APPROVE \
-        -F "body=@$REPORT" \
-        --jq '.html_url // empty')"
-      echo "review-bot: approved $KEY"
-    fi
-  elif [[ "$COMMENT_MODE" == "review" ]]; then
-    COMMENT_URL="$(gh pr review "$PR_NUMBER" -R "$OWNER/$REPO" --comment --body-file "$REPORT")"
-  else
-    COMMENT_URL="$(gh pr comment "$PR_NUMBER" -R "$OWNER/$REPO" --body-file "$REPORT")"
-  fi
-  if [[ -n "$COMMENT_URL" ]]; then
-    echo "$COMMENT_URL"
-  fi
-else
-  echo "review-bot: dry run; report written to $REPORT"
-fi
+echo "review-bot: evidence-only report written to $REPORT"
 
-if [[ "$POST" != "1" && "$RECORD_DRY_RUN" != "1" ]]; then
-  echo "review-bot: dry run; state not updated"
+if [[ "$RECORD_DRY_RUN" != "1" ]]; then
+  echo "review-bot: evidence-only run; state not updated"
   echo "review-bot: $KEY evaluated at $HEAD_SHA with status $STATUS"
   exit 0
 fi
@@ -474,7 +616,6 @@ jq \
   --arg status "$STATUS" \
   --arg ci_status "$CI_STATUS" \
   --arg report "$REPORT" \
-  --arg comment_url "$COMMENT_URL" \
   --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '.[$key] = {
     head_sha: $head_sha,
@@ -483,9 +624,8 @@ jq \
     status: $status,
     ci_status: $ci_status,
     report: $report,
-    comment_url: $comment_url,
     reviewed_at: $reviewed_at
-  } | if $comment_url == "" then .[$key] |= del(.comment_url) else . end' "$STATE_FILE" >"$tmp_state"
+  }' "$STATE_FILE" >"$tmp_state"
 mv "$tmp_state" "$STATE_FILE"
 
 echo "review-bot: $KEY reviewed at $HEAD_SHA with status $STATUS"

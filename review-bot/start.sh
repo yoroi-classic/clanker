@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
@@ -24,6 +25,8 @@ PID_FILE="${REVIEW_BOT_PID_FILE:-$RUNTIME_ROOT/watch.pid}"
 WATCH_LOG="${REVIEW_BOT_WATCH_LOG:-$LOG_ROOT/watch.log}"
 
 mkdir -p "$RUNTIME_ROOT" "$LOG_ROOT" "$(dirname "$PID_FILE")" "$(dirname "$WATCH_LOG")"
+touch "$WATCH_LOG"
+chmod 600 "$WATCH_LOG"
 
 if [[ -f "$PID_FILE" ]]; then
   old_pid="$(<"$PID_FILE")"

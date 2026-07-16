@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
@@ -81,6 +82,11 @@ poll_once_unlocked() {
     number="$(jq -r '.number' <<<"$item")"
     head_sha="$(jq -r '.head_sha' <<<"$item")"
     base_sha="$(jq -r '.base_sha' <<<"$item")"
+    review_bot_validate_owner "$owner"
+    review_bot_validate_repo "$repo"
+    review_bot_validate_pr_number "$number"
+    review_bot_validate_sha head "$head_sha"
+    review_bot_validate_sha base "$base_sha"
     short_sha="${head_sha:0:12}"
     short_base_sha="${base_sha:0:12}"
     prompt_file="$PROMPT_DIR/$owner-$repo-$number-$short_base_sha-$short_sha.md"

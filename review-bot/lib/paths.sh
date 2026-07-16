@@ -1,5 +1,73 @@
 #!/usr/bin/env bash
 
+review_bot_validate_owner() {
+  local owner="$1"
+
+  [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || {
+    printf 'review-bot: invalid GitHub owner: %s\n' "$owner" >&2
+    return 2
+  }
+}
+
+review_bot_validate_repo() {
+  local repo="$1"
+
+  [[ "$repo" =~ ^[A-Za-z0-9._-]{1,100}$ ]] || {
+    printf 'review-bot: invalid GitHub repository name: %s\n' "$repo" >&2
+    return 2
+  }
+  [[ "$repo" != "." && "$repo" != ".." ]] || {
+    printf 'review-bot: invalid GitHub repository name: %s\n' "$repo" >&2
+    return 2
+  }
+}
+
+review_bot_validate_pr_number() {
+  local number="$1"
+
+  [[ "$number" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'review-bot: invalid pull request number: %s\n' "$number" >&2
+    return 2
+  }
+}
+
+review_bot_validate_sha() {
+  local label="$1"
+  local sha="$2"
+
+  [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+    printf 'review-bot: invalid %s SHA: %s\n' "$label" "$sha" >&2
+    return 2
+  }
+}
+
+review_bot_safe_workdir() {
+  local worktree="$1"
+  local configured="$2"
+  local resolved
+  local worktree_root
+
+  [[ "$configured" != /* ]] || {
+    printf 'review-bot: configured workdir must be relative: %s\n' "$configured" >&2
+    return 2
+  }
+
+  worktree_root="$(cd "$worktree" && pwd -P)"
+  resolved="$(cd "$worktree_root" && cd "$configured" 2>/dev/null && pwd -P)" || {
+    printf 'review-bot: configured workdir does not exist: %s\n' "$configured" >&2
+    return 2
+  }
+  case "$resolved" in
+    "$worktree_root"|"$worktree_root"/*)
+      printf '%s\n' "$resolved"
+      ;;
+    *)
+      printf 'review-bot: configured workdir escapes the review worktree: %s\n' "$configured" >&2
+      return 2
+      ;;
+  esac
+}
+
 review_bot_repo_root() {
   local script_dir="$1"
 
