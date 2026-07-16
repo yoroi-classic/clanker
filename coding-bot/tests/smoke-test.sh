@@ -45,17 +45,21 @@ write_offline_wrappers() {
   real_git="$(command -v git)"
   mkdir -p "$bin_dir"
 
-  cat >"$bin_dir/git" <<WRAPPER
+cat >"$bin_dir/git" <<WRAPPER
 #!/usr/bin/env bash
 set -euo pipefail
 
-for arg in "\$@"; do
-  if [[ "\$arg" == "fetch" ]]; then
+args=("\$@")
+for index in "\${!args[@]}"; do
+  if [[ "\${args[\$index]}" == "fetch" ]]; then
     exit 0
+  fi
+  if [[ "\${args[\$index]}" == "refs/remotes/origin/main" ]]; then
+    args[\$index]="HEAD"
   fi
 done
 
-exec "$real_git" "\$@"
+exec "$real_git" "\${args[@]}"
 WRAPPER
 
   cat >"$bin_dir/gh" <<'WRAPPER'
