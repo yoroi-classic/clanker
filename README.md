@@ -86,7 +86,9 @@ workspace. Pull-request worktrees and other disposable data stay under
 `review-bot/.runtime/`, keeping the submodules suitable for normal development.
 
 Requirements include authenticated `gh`, plus `git`, `jq`, `flock`, and
-`timeout`.
+`timeout`. Hosts that configure `localChecks` with the default denied-network
+policy also need `bwrap` and permission to create an unprivileged network
+namespace.
 
 ```sh
 # Refresh the requested-review queue once.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
@@ -33,6 +34,7 @@ require jq
 
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
+review_bot_validate_owner "$OWNER"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 INCLUDE_DRAFTS="$(jq -r '.includeDrafts // false' "$CONFIG")"
 SKIP_SELF_AUTHORED="$(jq -r '.skipSelfAuthored // true' "$CONFIG")"
@@ -62,6 +64,8 @@ for row in "${rows[@]}"; do
   url="$(jq -r '.url' <<<"$item")"
   author="$(jq -r '.author' <<<"$item")"
   title="$(jq -r '.title' <<<"$item")"
+  review_bot_validate_repo "$repo"
+  review_bot_validate_pr_number "$number"
 
   if [[ "$SKIP_SELF_AUTHORED" == "true" && "$author" == "$REVIEWER" && "${REVIEW_BOT_INCLUDE_SELF_AUTHORED:-0}" != "1" ]]; then
     continue
