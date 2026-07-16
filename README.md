@@ -36,7 +36,7 @@ otherwise follow the repository's current default branch:
 | Branch | Repositories |
 | --- | --- |
 | `development` | `cardano-wallet-backend` |
-| `develop` | `yoroi`, `yoroi-frontend` |
+| `develop` | `trezor-suite`, `yoroi`, `yoroi-frontend` |
 | `master` | `CIP4`, `cardano-serialization-lib`, `cip14-js`, `coin-selection`, `message-signing`, `webpack-httpolyglot-server`, `yoroi-graphql-migration-backend` |
 
 All other submodules track `main`.

@@ -58,3 +58,7 @@
 	path = repos/yoroi-graphql-migration-backend
 	url = git@github.com:yoroi-classic/yoroi-graphql-migration-backend.git
 	branch = master
+[submodule "repos/trezor-suite"]
+	path = repos/trezor-suite
+	url = git@github.com:yoroi-classic/trezor-suite.git
+	branch = develop

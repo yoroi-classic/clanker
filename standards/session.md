@@ -54,6 +54,12 @@
 - Pool metadata work should consider IOHK's SMASH server.
 - Prefer dcSpark `cardano-multiplatform-lib` over maintaining our own CSL fork
   for future migration work.
+- `yoroi-classic/trezor-suite` is the active fork for Trezor Connect packages;
+  the archived `trezor/connect` repository is not the target for new work.
+- The Trezor CML migration path runs through
+  `trezor-connect-flow -> @trezor/connect-web -> @trezor/connect -> @trezor/network-cardano -> coin-selection`.
+  Prefer fixing `yoroi-classic/coin-selection` and then wiring that through
+  `trezor-suite`, `trezor-connect-flow`, and `yoroi-frontend`.
 - Support CIP-0103 where relevant in extension and mobile signing flows.
 
 ## Verification
