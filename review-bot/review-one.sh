@@ -302,10 +302,11 @@ run_builtin_check() {
   local label="$1"
   local command="$2"
   local workdir="${3:-$WORKTREE}"
-  local log_file="$LOG_DIR/$(safe_name "$label").log"
+  local log_file
   local output_blocks="$(( (LOCAL_CHECK_MAX_OUTPUT_BYTES + 511) / 512 ))"
   local rc
 
+  log_file="$LOG_DIR/$(safe_name "$label").log"
   printf 'review-bot: running %s\n' "$label"
   if (
     cd "$workdir"
@@ -335,7 +336,7 @@ run_local_check() {
   local label="$1"
   local command="$2"
   local workdir="${3:-$WORKTREE}"
-  local log_file="$LOG_DIR/$(safe_name "$label").log"
+  local log_file
   local output_blocks="$(( (LOCAL_CHECK_MAX_OUTPUT_BYTES + 511) / 512 ))"
   local memory_kib="$(( (LOCAL_CHECK_MEMORY_BYTES + 1023) / 1024 ))"
   local sandbox_workdir="/worktree${workdir#"$WORKTREE"}"
@@ -364,6 +365,7 @@ run_local_check() {
     --tmpfs /check-env
   )
 
+  log_file="$LOG_DIR/$(safe_name "$label").log"
   UNTRUSTED_CHECKS_RAN=1
   printf 'review-bot: running untrusted local check %s\n' "$label"
 

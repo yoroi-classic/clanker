@@ -35,7 +35,7 @@ REPO_DIR="$(review_bot_repo_dir "$REPO_ROOT" "$WORKSPACE" "$CONFIG" "$REPO")"
 WORKTREE_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_WORKTREE_ROOT:-}" "$CONFIG" '.worktreeRoot' 'review-bot/.runtime/worktrees')"
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
-SHARED_REVIEW_STANDARDS="$REPO_ROOT/standards/review.md"
+SHARED_REVIEW_STANDARDS="${REVIEW_BOT_SHARED_REVIEW_STANDARDS:-$REPO_ROOT/standards/review.md}"
 
 META="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
   --json number,title,url,headRefOid,headRefName,baseRefName,isDraft,author)"

@@ -130,6 +130,12 @@ Run the local smoke test:
 The smoke test uses temporary local git repositories and a mocked `gh` command.
 It does not post to GitHub.
 
+Validate a configuration without starting the bot:
+
+```sh
+./review-bot/validate-config.sh review-bot/config.json
+```
+
 ## Self-Improvement
 
 When a review pass identifies a durable improvement to review-bot behavior,

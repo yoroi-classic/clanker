@@ -30,6 +30,10 @@ diverged checkout requires manual resolution before new work. Set
 operating guidance and, when `gh` is available, live assigned issues and authored
 pull requests. The live queue must always win over stale chat history.
 
+For offline tests or diagnostics, `CODING_BOT_SKIP_UPDATE_CHECK=1` suppresses
+only the startup fetch/self-update comparison. It does not suppress live queue
+queries when an authenticated or mocked `gh` command is available.
+
 Generated scratch files belong under `coding-bot/.runtime/` by default. Override
 that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
 bot-owned workspace. Bots may delete generated files in their runtime workspace.
@@ -51,3 +55,9 @@ change as a normal suggestion PR.
 Keep this directory small and operational. Runtime state, temporary clones,
 review queues, logs, and generated prompts belong under existing runtime
 directories such as `review-bot/.runtime/`, not here.
+
+The offline mocked smoke test is:
+
+```sh
+./coding-bot/tests/smoke-test.sh
+```

@@ -519,6 +519,14 @@ JSON
   decoded_title="$(printf '%s' "$encoded_metadata" | base64 -d | jq -r '.title')"
   [[ "$decoded_title" == "$hostile_title" ]] ||
     fail "encoded prompt metadata should preserve the PR title as data"
+
+  REVIEW_BOT_SHARED_REVIEW_STANDARDS="$TMP_ROOT/missing-review-standards.md" \
+    PATH="$fake_bin:$PATH" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/agent-prompt.sh" sample 1 >"$output"
+  assert_contains "$output" "Unavailable: standards/review.md was not found."
 }
 
 test_record_review_rejects_moved_pr() {
