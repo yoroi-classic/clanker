@@ -148,4 +148,6 @@ Run the same offline checks used by CI:
 The command validates Bash syntax, runs ShellCheck at warning severity, validates
 review-bot configuration values and JSON, and runs the review-bot and coding-bot
 smoke suites. It does not initialize submodules, contact GitHub, or post
-anything.
+anything. Local prerequisites are `bash`, `bwrap`, `find`, `jq`, `shellcheck`,
+`git`, `flock`, `timeout`, and standard GNU userland tools. The host must permit
+bubblewrap to create the namespaces used by the review-bot sandbox.

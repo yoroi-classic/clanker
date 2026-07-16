@@ -30,5 +30,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends bubblewrap shellcheck
 
+      - name: Enable and verify review sandbox
+        run: |
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl --write kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if sysctl kernel.unprivileged_userns_clone >/dev/null 2>&1; then
+            sudo sysctl --write kernel.unprivileged_userns_clone=1
+          fi
+          bwrap \
+            --unshare-net \
+            --unshare-pid \
+            --unshare-ipc \
+            --unshare-uts \
+            --die-with-parent \
+            --new-session \
+            --ro-bind / / \
+            --dev /dev \
+            --proc /proc \
+            -- /bin/true
+
       - name: Run quality checks
         run: ./scripts/quality-check.sh

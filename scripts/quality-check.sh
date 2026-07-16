@@ -12,6 +12,7 @@ require() {
 }
 
 require bash
+require bwrap
 require find
 require jq
 require shellcheck
