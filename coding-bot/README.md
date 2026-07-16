@@ -38,6 +38,15 @@ Generated scratch files belong under `coding-bot/.runtime/` by default. Override
 that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
 bot-owned workspace. Bots may delete generated files in their runtime workspace.
 
+The launcher and worker-plan helper share `lib/queue.sh`. It uses paginated
+GitHub REST searches plus jq, never GraphQL, and prints the measured HTTP
+request fan-out for each refresh. Search pages cost one request each. Authored
+PRs whose detail endpoint is available cost three additional requests for PR
+metadata, checks, and reviews. GitHub Search exposes at most 1,000 results per
+query. The renderer refuses to show a partial search result set and tells the
+operator to partition the query; it also labels truncated check-run totals as
+incomplete.
+
 When a session discovers a durable improvement to coding-bot behavior, prompts,
 runbooks, or shared standards, open or use a `clanker` issue and publish the
 change as a normal suggestion PR.
@@ -49,6 +58,7 @@ change as a normal suggestion PR.
 - `bin/start.sh` renders a session bootstrap with live GitHub queue context.
 - `bin/worker-plan.sh` renders scale-up/scale-down guidance for a target worker
   count.
+- `lib/queue.sh` provides the shared paginated REST/JQ queue renderer.
 - `.runtime/` is the ignored workspace for generated prompts, review bodies,
   scratch files, and temporary queues.
 

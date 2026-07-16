@@ -18,11 +18,14 @@ require jq
 require shellcheck
 
 mapfile -d '' SHELL_FILES < <(
-  find coding-bot review-bot scripts \
-    -type f \
-    -name '*.sh' \
-    -not -path '*/.runtime/*' \
-    -print0 |
+  {
+    find coding-bot review-bot scripts \
+      -type f \
+      -name '*.sh' \
+      -not -path '*/.runtime/*' \
+      -print0
+    find . -maxdepth 1 -type f -name '*.sh' -print0
+  } |
     sort -z
 )
 

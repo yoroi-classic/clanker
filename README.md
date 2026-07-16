@@ -79,6 +79,19 @@ git submodule update --remote --recursive
 `clanker`. Review those pointer changes and commit them intentionally; do not
 run it as a routine prerequisite for unrelated work.
 
+For a concise offline report across all configured repositories:
+
+```sh
+./workspace-status.sh
+./workspace-status.sh --json
+```
+
+The report compares pinned and checked-out commits, branch/detached and dirty
+state, upstream ahead/behind counts, missing recursive submodules, local
+`AGENTS.md`, and configured versus locally discoverable default branches. It
+does not fetch remotes; default-branch mismatch is `unknown` when `origin/HEAD`
+is unavailable.
+
 ## Review bot
 
 The checked-in review-bot configuration uses `repos/` as its base-checkout
@@ -132,6 +145,16 @@ The coding bot prints the static operating guidance and, when `gh` is
 authenticated, the live assigned issue and authored PR queues. Keep top-level
 `standards/` current as operating practices and recurring gotchas evolve; both
 `coding-bot` and `review-bot` consume those files.
+
+Startup and worker planning share one REST/JQ queue implementation. Searches
+use 100-item REST pagination and report their measured request fan-out after
+each refresh. A successful authored-PR expansion uses three requests (PR
+details, checks, and reviews); failed detail reads stop expansion for that PR.
+GitHub's Search API exposes at most 1,000 results for a query, so a queue that
+exceeds the returned result count is marked incomplete and is not rendered;
+partition that query before acting. Check-run totals larger than the returned
+page are also labeled incomplete instead of being silently undercounted. No
+GraphQL query is used.
 
 By default, coding-bot scratch files live under `coding-bot/.runtime/`.
 Override with `CODING_BOT_RUNTIME_ROOT` if a session needs another bot-owned
