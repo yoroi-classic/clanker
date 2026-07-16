@@ -18,6 +18,11 @@ RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" 
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 PID_FILE="${REVIEW_BOT_PID_FILE:-$RUNTIME_ROOT/watch.pid}"
 WATCH_LOG="${REVIEW_BOT_WATCH_LOG:-$LOG_ROOT/watch.log}"
+HEALTH_FILE="${REVIEW_BOT_HEALTH_FILE:-$RUNTIME_ROOT/health.json}"
+HEALTH_STALE_SECONDS="${REVIEW_BOT_HEALTH_STALE_SECONDS:-$(jq -r '.healthStaleSeconds // 900' "$CONFIG")}"
+health_rc=0
+
+review_bot_require_positive_integer healthStaleSeconds "$HEALTH_STALE_SECONDS"
 
 if [[ ! -f "$PID_FILE" ]]; then
   found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
@@ -46,7 +51,51 @@ fi
 
 echo "review-bot: watcher running with pid $pid"
 echo "review-bot: log $WATCH_LOG"
+if [[ ! -f "$HEALTH_FILE" ]]; then
+  echo "review-bot: health unavailable; no completed poll recorded at $HEALTH_FILE"
+  health_rc=1
+elif ! jq -e '
+  def nonnegative_integer:
+    type == "number" and . == floor and . >= 0;
+  type == "object"
+  and (.status == "ok" or .status == "error")
+  and (.last_attempt_at | type == "string")
+  and (.last_attempt_epoch | nonnegative_integer)
+  and (.last_success_at == null or (.last_success_at | type == "string"))
+  and (.last_success_epoch == null or (.last_success_epoch | nonnegative_integer))
+  and (.last_error == null or (.last_error | type == "string"))
+  and (.consecutive_failures | nonnegative_integer)
+  and (.queue_count | nonnegative_integer)
+' "$HEALTH_FILE" >/dev/null 2>&1; then
+  echo "review-bot: health error; invalid health file at $HEALTH_FILE"
+  health_rc=1
+else
+  health_status="$(jq -r '.status // "unknown"' "$HEALTH_FILE")"
+  last_success_at="$(jq -r '.last_success_at // "never"' "$HEALTH_FILE")"
+  last_success_epoch="$(jq -r '.last_success_epoch // 0' "$HEALTH_FILE")"
+  last_attempt_at="$(jq -r '.last_attempt_at // "unknown"' "$HEALTH_FILE")"
+  consecutive_failures="$(jq -r '.consecutive_failures // 0' "$HEALTH_FILE")"
+  queue_count="$(jq -r '.queue_count // 0' "$HEALTH_FILE")"
+  last_error="$(jq -r '.last_error // empty' "$HEALTH_FILE")"
+  health_label="healthy"
+
+  if [[ "$health_status" == "error" ]]; then
+    health_label="error"
+    health_rc=1
+  elif [[ "$last_success_epoch" -eq 0 ]] || [[ "$(( $(date +%s) - last_success_epoch ))" -gt "$HEALTH_STALE_SECONDS" ]]; then
+    health_label="stale"
+    health_rc=1
+  fi
+
+  echo "review-bot: health $health_label; queue=$queue_count; failures=$consecutive_failures"
+  echo "review-bot: last attempt $last_attempt_at; last success $last_success_at"
+  if [[ -n "$last_error" ]]; then
+    echo "review-bot: last error $last_error"
+  fi
+fi
 if [[ -f "$WATCH_LOG" ]]; then
   echo "review-bot: recent log:"
   tail -20 "$WATCH_LOG"
 fi
+
+exit "$health_rc"
