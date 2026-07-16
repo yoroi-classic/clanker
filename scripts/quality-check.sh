@@ -46,6 +46,9 @@ printf 'quality-check: configuration validation tests\n'
 printf 'quality-check: review-bot smoke test\n'
 ./review-bot/tests/smoke-test.sh
 
+printf 'quality-check: review-bot maintenance test\n'
+./review-bot/tests/maintenance-test.sh
+
 printf 'quality-check: coding-bot smoke test\n'
 ./coding-bot/tests/smoke-test.sh
 

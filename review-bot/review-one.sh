@@ -44,6 +44,7 @@ RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" 
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 STATE_LOCK_FILE="${REVIEW_BOT_STATE_LOCK:-$RUNTIME_ROOT/state.lock}"
+MAINTENANCE_LOCK_FILE="${REVIEW_BOT_MAINTENANCE_LOCK:-$RUNTIME_ROOT/maintenance.lock}"
 INCLUDE_DRAFTS="$(jq -r '.includeDrafts // false' "$CONFIG")"
 SKIP_SELF_AUTHORED="$(jq -r '.skipSelfAuthored // true' "$CONFIG")"
 CHECK_TIMEOUT_SECONDS="${REVIEW_BOT_CHECK_TIMEOUT_SECONDS:-$(jq -r '.checkTimeoutSeconds // 3600' "$CONFIG")}"
@@ -58,7 +59,11 @@ LOCAL_CHECK_MAX_OPEN_FILES="${REVIEW_BOT_LOCAL_CHECK_MAX_OPEN_FILES:-$(jq -r '.l
 LOCAL_CHECK_MAX_OUTPUT_BYTES="${REVIEW_BOT_LOCAL_CHECK_MAX_OUTPUT_BYTES:-$(jq -r '.localCheckMaxOutputBytes // 10485760' "$CONFIG")}"
 BWRAP="${REVIEW_BOT_BWRAP:-bwrap}"
 
-mkdir -p "$WORKTREE_ROOT" "$RUNTIME_ROOT" "$LOG_ROOT" "$(dirname "$STATE_FILE")" "$(dirname "$STATE_LOCK_FILE")"
+mkdir -p \
+  "$WORKTREE_ROOT" "$RUNTIME_ROOT" "$LOG_ROOT" "$(dirname "$STATE_FILE")" \
+  "$(dirname "$STATE_LOCK_FILE")" "$(dirname "$MAINTENANCE_LOCK_FILE")"
+exec 5>"$MAINTENANCE_LOCK_FILE"
+flock -s 5
 if [[ ! -f "$STATE_FILE" ]]; then
   printf '{}\n' >"$STATE_FILE"
 fi

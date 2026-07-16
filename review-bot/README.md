@@ -139,6 +139,34 @@ Validate a configuration without starting the bot:
 ./review-bot/validate-config.sh review-bot/config.json
 ```
 
+Run diagnostics for tools, authentication, configuration, paths, state,
+reviewer identity, GitHub rate limits, watcher health, runtime sizes, and
+recursive submodule readiness:
+
+```sh
+./review-bot/doctor.sh
+```
+
+Preview safe runtime cleanup (the default), then explicitly apply the reviewed
+plan:
+
+```sh
+./review-bot/maintain.sh
+./review-bot/maintain.sh --apply
+```
+
+Maintenance is serialized by a runtime lock and also holds the queue/state
+locks while planning or applying changes. It never removes `queue.jsonl`,
+`reviews.json`, queued prompts/runs, or live leased worktrees. It prunes
+unreferenced prompts, check environments, logs, registered review worktrees,
+legacy `review-bot/.runtime/repos/` clones, stale leases/temp files, and old
+state only after GitHub confirms the PR is closed. Retention is configured with
+the `maintenance*Days` and `maintenanceTempHours` keys in `config.json`.
+
+If cleanup is interrupted, rerun the dry-run first. Atomic state replacement
+and Git worktree removal keep partial runs recoverable; items that cannot be
+verified or safely removed are retained with a warning.
+
 ## Self-Improvement
 
 When a review pass identifies a durable improvement to review-bot behavior,
