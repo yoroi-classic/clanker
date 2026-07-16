@@ -28,7 +28,7 @@ jobs:
       - name: Install ShellCheck
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends shellcheck
+          sudo apt-get install --yes --no-install-recommends bubblewrap shellcheck
 
       - name: Run quality checks
         run: ./scripts/quality-check.sh
