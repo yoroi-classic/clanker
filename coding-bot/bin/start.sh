@@ -127,6 +127,11 @@ print_pr_search() {
 print_self_update_status() {
   printf '\n## Clanker Self-Update\n\n'
 
+  if [[ "${CODING_BOT_SKIP_UPDATE_CHECK:-0}" == "1" ]]; then
+    printf 'Self-update check skipped by `CODING_BOT_SKIP_UPDATE_CHECK=1`.\n'
+    return 0
+  fi
+
   local marker="$RUNTIME_ROOT/clanker-update-needed"
   local update_ref="$UPDATE_REF"
   local update_remote update_branch remote_ref

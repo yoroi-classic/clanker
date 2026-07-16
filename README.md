@@ -136,3 +136,16 @@ authenticated, the live assigned issue and authored PR queues. Keep top-level
 By default, coding-bot scratch files live under `coding-bot/.runtime/`.
 Override with `CODING_BOT_RUNTIME_ROOT` if a session needs another bot-owned
 workspace.
+
+## Quality checks
+
+Run the same offline checks used by CI:
+
+```sh
+./scripts/quality-check.sh
+```
+
+The command validates Bash syntax, runs ShellCheck at warning severity, validates
+review-bot configuration values and JSON, and runs the review-bot and coding-bot
+smoke suites. It does not initialize submodules, contact GitHub, or post
+anything.
