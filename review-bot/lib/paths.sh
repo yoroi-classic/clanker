@@ -183,6 +183,70 @@ review_bot_reviewer() {
   gh api user --jq '.login'
 }
 
+review_bot_require_positive_integer() {
+  local label="$1"
+  local value="$2"
+
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'review-bot: %s must be a positive integer, got: %s\n' "$label" "$value" >&2
+    return 2
+  }
+}
+
+review_bot_require_nonnegative_integer() {
+  local label="$1"
+  local value="$2"
+
+  [[ "$value" =~ ^[0-9]+$ ]] || {
+    printf 'review-bot: %s must be a nonnegative integer, got: %s\n' "$label" "$value" >&2
+    return 2
+  }
+}
+
+review_bot_file_size() {
+  local path="$1"
+  local size
+
+  if command -v stat >/dev/null 2>&1; then
+    if size="$(stat -c '%s' "$path" 2>/dev/null)"; then
+      printf '%s\n' "$size"
+      return
+    fi
+    if size="$(stat -f '%z' "$path" 2>/dev/null)"; then
+      printf '%s\n' "$size"
+      return
+    fi
+  fi
+
+  wc -c <"$path" | tr -d '[:space:]'
+}
+
+review_bot_rotate_log() {
+  local log_file="$1"
+  local max_bytes="$2"
+  local retain="$3"
+  local size
+  local index
+
+  [[ -f "$log_file" ]] || return 0
+  size="$(review_bot_file_size "$log_file")"
+  [[ "$size" -ge "$max_bytes" ]] || return 0
+
+  if [[ "$retain" -gt 0 ]]; then
+    rm -f "$log_file.$retain"
+    for ((index = retain - 1; index >= 1; index--)); do
+      if [[ -f "$log_file.$index" ]]; then
+        mv "$log_file.$index" "$log_file.$((index + 1))"
+      fi
+    done
+    cp "$log_file" "$log_file.1"
+    chmod 600 "$log_file.1"
+  fi
+
+  : >"$log_file"
+  chmod 600 "$log_file"
+}
+
 review_bot_pid_running() {
   local pid="${1:-}"
 

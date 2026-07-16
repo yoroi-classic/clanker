@@ -10,9 +10,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
 source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/github.sh"
 REPO_ROOT="$(review_bot_repo_root "$SCRIPT_DIR")"
 REPO="$1"
 PR_NUMBER="$2"
+PROMPT_METADATA_JSON="${REVIEW_BOT_PROMPT_METADATA_JSON:-}"
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -24,9 +26,9 @@ require() {
 require gh
 require jq
 require base64
+require timeout
 
 OWNER="$(review_bot_owner "$CONFIG")"
-REVIEWER="$(review_bot_reviewer "$CONFIG")"
 review_bot_validate_owner "$OWNER"
 review_bot_validate_repo "$REPO"
 review_bot_validate_pr_number "$PR_NUMBER"
@@ -37,21 +39,75 @@ LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 SHARED_REVIEW_STANDARDS="${REVIEW_BOT_SHARED_REVIEW_STANDARDS:-$REPO_ROOT/standards/review.md}"
 
-META="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
-  --json number,title,url,headRefOid,headRefName,baseRefName,isDraft,author)"
-PULL="$(gh api "/repos/$OWNER/$REPO/pulls/$PR_NUMBER")"
+if [[ -z "$PROMPT_METADATA_JSON" ]]; then
+  review_bot_configure_github_get "$CONFIG"
+  REVIEWER="$(review_bot_resolve_reviewer_bounded "$CONFIG")" || {
+    echo "review-bot: failed to resolve the authenticated GitHub reviewer" >&2
+    exit 1
+  }
+  PULL="$(review_bot_gh_get "/repos/$OWNER/$REPO/pulls/$PR_NUMBER")" || {
+    echo "review-bot: failed to load prompt metadata for $OWNER/$REPO#$PR_NUMBER" >&2
+    exit 1
+  }
+  PROMPT_METADATA_JSON="$(
+    jq -c \
+      --arg owner "$OWNER" \
+      --arg repo "$REPO" \
+      --argjson number "$PR_NUMBER" \
+      --arg reviewer "$REVIEWER" \
+      '{
+        owner:$owner,
+        repo:$repo,
+        number:$number,
+        reviewer:$reviewer,
+        title:.title,
+        url:.html_url,
+        author:.user.login,
+        head_sha:.head.sha,
+        base_sha:.base.sha,
+        head_ref:.head.ref,
+        base_ref:.base.ref,
+        is_draft:(.draft | tostring),
+        requested_reviewers:([.requested_reviewers[]?.login] | join(", "))
+      }' <<<"$PULL"
+  )"
+fi
 
-TITLE="$(jq -r '.title' <<<"$META")"
-URL="$(jq -r '.url' <<<"$META")"
-HEAD_SHA="$(jq -r '.headRefOid' <<<"$META")"
-HEAD_REF="$(jq -r '.headRefName' <<<"$META")"
-BASE_REF="$(jq -r '.baseRefName' <<<"$META")"
-IS_DRAFT="$(jq -r '.isDraft' <<<"$META")"
-AUTHOR="$(jq -r '.author.login' <<<"$META")"
-BASE_SHA="$(jq -r '.base.sha' <<<"$PULL")"
+if ! jq -e \
+  --arg owner "$OWNER" \
+  --arg repo "$REPO" \
+  --argjson number "$PR_NUMBER" '
+    type == "object"
+    and .owner == $owner
+    and .repo == $repo
+    and .number == $number
+    and (.reviewer | type == "string" and length > 0)
+    and (.title | type == "string")
+    and (.url | type == "string" and length > 0)
+    and (.author | type == "string" and length > 0)
+    and (.head_sha | type == "string")
+    and (.base_sha | type == "string")
+    and (.head_ref | type == "string")
+    and (.base_ref | type == "string")
+    and (.is_draft | type == "string")
+    and (.requested_reviewers | type == "string")
+  ' <<<"$PROMPT_METADATA_JSON" >/dev/null; then
+  echo "review-bot: invalid or mismatched prompt metadata for $OWNER/$REPO#$PR_NUMBER" >&2
+  exit 2
+fi
+
+REVIEWER="$(jq -r '.reviewer' <<<"$PROMPT_METADATA_JSON")"
+TITLE="$(jq -r '.title' <<<"$PROMPT_METADATA_JSON")"
+URL="$(jq -r '.url' <<<"$PROMPT_METADATA_JSON")"
+HEAD_SHA="$(jq -r '.head_sha' <<<"$PROMPT_METADATA_JSON")"
+HEAD_REF="$(jq -r '.head_ref' <<<"$PROMPT_METADATA_JSON")"
+BASE_REF="$(jq -r '.base_ref' <<<"$PROMPT_METADATA_JSON")"
+IS_DRAFT="$(jq -r '.is_draft' <<<"$PROMPT_METADATA_JSON")"
+AUTHOR="$(jq -r '.author' <<<"$PROMPT_METADATA_JSON")"
+BASE_SHA="$(jq -r '.base_sha' <<<"$PROMPT_METADATA_JSON")"
 review_bot_validate_sha head "$HEAD_SHA"
 review_bot_validate_sha base "$BASE_SHA"
-REQUESTED_REVIEWERS="$(jq -r '[.requested_reviewers[]?.login] | join(", ")' <<<"$PULL")"
+REQUESTED_REVIEWERS="$(jq -r '.requested_reviewers' <<<"$PROMPT_METADATA_JSON")"
 KEY="$OWNER/$REPO#$PR_NUMBER"
 UNTRUSTED_PR_METADATA="$(
   jq -cn \

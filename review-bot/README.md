@@ -101,7 +101,10 @@ Start, inspect, or stop the explicit background watcher:
 ```
 
 `start.sh` writes a pid file under `runtimeRoot` and appends watcher output to
-`review-bot/logs/watch.log`.
+`review-bot/logs/watch.log`. It validates configuration before launching and
+serializes concurrent start attempts. The active log rotates when it reaches
+`watchLogMaxBytes`; numbered private backups are retained according to
+`watchLogRetain`.
 
 `review-one.sh` is permanently evidence-only: it writes reports without posting
 comments or reviews to GitHub. A semantic review agent should run it for CI
@@ -155,6 +158,22 @@ subagent prompts to `review-bot/.runtime/prompts/`. A review agent consumes
 those prompts, runs the harness, inspects the code, posts the GitHub review, and
 records completion with `review-bot/record-review.sh`. Generated prompts embed
 the shared review standards from `standards/review.md`.
+
+Watcher discovery and manual prompt metadata loading use bounded, idempotent
+GitHub REST `GET` requests only. Queue-generated prompts reuse the metadata from
+the bounded discovery response and do not issue a second GitHub request. Each
+request is capped by `discoveryTimeoutSeconds` and retried up to
+`discoveryMaxAttempts` with exponential, jittered backoff between
+`discoveryBackoffBaseSeconds` and `discoveryBackoffMaxSeconds`. A failed or
+interrupted refresh leaves the last valid queue in place and removes temporary
+queue/prompt files.
+
+Watcher health is written atomically to `review-bot/.runtime/health.json`.
+`status.sh` reports the last attempt, last successful refresh, queue count,
+consecutive failures, and most recent error. It returns a failure when the
+watcher is running but no poll has completed, health is in error, or health is
+older than `healthStaleSeconds`. Queue logs contain additions and removals rather than
+repeating unchanged entries every poll.
 
 Each optional local review-specific check is capped by `checkTimeoutSeconds` in
 `config.json`, or by `REVIEW_BOT_CHECK_TIMEOUT_SECONDS` for a single run.
