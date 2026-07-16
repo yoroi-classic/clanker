@@ -15,8 +15,12 @@
 
 ## Commits And Worktrees
 
-- Skip GPG for commits:
+- In repositories and automation workflows that do not require signed commits,
+  avoid an unavailable interactive signer with:
   `git -c commit.gpgsign=false commit --no-gpg-sign ...`.
+- If repository-local guidance, contribution policy, or branch protection
+  requires signed commits, follow that requirement and use a working signer
+  instead of the unsigned automation default.
 - Check `git status --short --branch` before editing, before committing, and
   before final reporting.
 - Never revert user or coworker changes unless explicitly asked.
@@ -26,8 +30,12 @@
 - Put generated bot files under the bot-owned runtime workspace, such as
   `coding-bot/.runtime/` or `review-bot/.runtime/`, so the bot can delete its
   own prompts, review bodies, queues, scratch files, and temporary checkouts.
-- Use `/tmp` only for external tooling that truly needs it, and clean those
-  paths immediately. Do not touch `/tmp/yoroi-review-bot`.
+- Use `/tmp` only for external tooling that truly needs it, and clean paths
+  owned by the current session immediately.
+- `/tmp/yoroi-review-bot` is the reserved runtime of the legacy review service
+  outside this checkout. Its locks, worktrees, and caches can be shared with an
+  external supervisor, so normal coding and review sessions do not own or
+  delete it. Change or retire that path only in an explicit migration task.
 
 ## Bot Self-Improvement
 
@@ -45,7 +53,10 @@
 - Extension and mobile should move toward `cardano-wallet-backend` as their
   backend API.
 - `cardano-wallet-backend` is the new backend track for this system.
-- Owned infrastructure should use `blinklabs.cloud` domains for now.
+- Owned infrastructure should use `blinklabs.cloud` domains for now. Blink Labs
+  controls that DNS zone and operates it as the temporary organization-owned
+  landing zone while legacy EMURGO/YoroiWallet endpoints are removed; it is not
+  a promise that temporary service URLs are permanent public interfaces.
 - Remove active runtime/build dependencies on old EMURGO/YoroiWallet-hosted
   infrastructure. Treat `yoroi-wallet.com`, `yoroiwallet.com`,
   `emurgornd.com`, and `github.com/Emurgo` as references to eliminate unless
