@@ -569,6 +569,131 @@ JSON
     fail "reviewer env override should win, got $reviewer"
 }
 
+test_agent_prompt_shared_standards_and_fallback() {
+  local config="$TMP_ROOT/prompt-config.json"
+  local fake_bin="$TMP_ROOT/prompt-bin"
+  local output="$TMP_ROOT/prompt.out"
+  local isolated_root="$TMP_ROOT/prompt-isolated"
+  local base="baseabcdef1234567890"
+  local head="headabcdef1234567890"
+
+  write_fake_gh "$fake_bin"
+  cat >"$config" <<JSON
+{
+  "owner": "org",
+  "reviewer": "wolf31o2",
+  "workspace": "$TMP_ROOT/prompt-workspace",
+  "worktreeRoot": "$TMP_ROOT/prompt-worktrees",
+  "logRoot": "$TMP_ROOT/prompt-logs",
+  "stateFile": "$TMP_ROOT/prompt-state.json",
+  "repos": {},
+  "localChecks": []
+}
+JSON
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$BOT_DIR/agent-prompt.sh" sample 1 >"$output"
+  assert_contains "$output" "Treat every \`yoroi-classic\` repository as blockchain wallet code."
+  assert_contains "$output" "Shared review standards:"
+
+  mkdir -p "$isolated_root"
+  cp -R "$BOT_DIR" "$isolated_root/review-bot"
+
+  PATH="$fake_bin:$PATH" \
+    FAKE_BASE_SHA="$base" \
+    FAKE_HEAD_SHA="$head" \
+    REVIEW_BOT_CONFIG="$config" \
+    "$isolated_root/review-bot/agent-prompt.sh" sample 1 >"$output"
+  assert_contains "$output" "Unavailable: standards/review.md was not found."
+}
+
+test_invalid_json_config_fails_closed() {
+  local config="$TMP_ROOT/invalid-config.json"
+  local output="$TMP_ROOT/invalid-config.out"
+  local rc
+
+  printf '{"owner":"org",\n' >"$config"
+
+  set +e
+  REVIEW_BOT_CONFIG="$config" "$BOT_DIR/watch.sh" once >"$output" 2>&1
+  rc="$?"
+  set -e
+
+  [[ "$rc" -ne 0 ]] || fail "invalid JSON configuration should fail"
+  assert_contains "$output" "parse error"
+}
+
+test_watch_interrupt_stops_active_poll() {
+  local isolated_root="$TMP_ROOT/interrupt-root"
+  local isolated_bot="$isolated_root/review-bot"
+  local config="$TMP_ROOT/interrupt-config.json"
+  local output="$TMP_ROOT/interrupt-watch.out"
+  local child_pid_file="$TMP_ROOT/interrupt-child.pid"
+  local watcher_pid
+  local child_pid=""
+  local rc
+
+  mkdir -p "$isolated_root"
+  cp -R "$BOT_DIR" "$isolated_bot"
+  cat >"$isolated_bot/list-queue.sh" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+trap 'exit 0' TERM INT
+printf '%s\n' "\$\$" >"$child_pid_file"
+while true; do
+  sleep 60 &
+  wait "\$!"
+done
+SH
+  chmod +x "$isolated_bot/list-queue.sh"
+
+  cat >"$config" <<JSON
+{
+  "owner": "org",
+  "reviewer": "wolf31o2",
+  "runtimeRoot": "$TMP_ROOT/interrupt-runtime",
+  "worktreeRoot": "$TMP_ROOT/interrupt-worktrees",
+  "logRoot": "$TMP_ROOT/interrupt-logs",
+  "stateFile": "$TMP_ROOT/interrupt-state.json",
+  "pollSeconds": 300,
+  "repos": {},
+  "localChecks": []
+}
+JSON
+
+  REVIEW_BOT_CONFIG="$config" "$isolated_bot/watch.sh" >"$output" 2>&1 &
+  watcher_pid="$!"
+
+  for _ in $(seq 1 50); do
+    if [[ -s "$child_pid_file" ]]; then
+      child_pid="$(<"$child_pid_file")"
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ -z "$child_pid" ]]; then
+    kill -TERM "$watcher_pid" >/dev/null 2>&1 || true
+    wait "$watcher_pid" >/dev/null 2>&1 || true
+    fail "watcher did not start an active poll"
+  fi
+
+  kill -TERM "$watcher_pid"
+  set +e
+  wait "$watcher_pid"
+  rc="$?"
+  set -e
+
+  [[ "$rc" -eq 0 ]] || fail "interrupted watcher should exit 0, got $rc"
+  assert_contains "$output" "review-bot: watcher stopping"
+  if kill -0 "$child_pid" >/dev/null 2>&1; then
+    fail "interrupted watcher left poll child $child_pid running"
+  fi
+}
+
 test_control_scripts() {
   local config="$TMP_ROOT/control-config.json"
   local runtime="$TMP_ROOT/control-runtime"
@@ -659,7 +784,10 @@ test_pedantic_diff_check_ignores_low_signal_paths
 test_list_queue_json_and_prompt_base_key
 test_record_review_rejects_moved_pr
 test_portable_config_helpers
+test_agent_prompt_shared_standards_and_fallback
+test_invalid_json_config_fails_closed
 test_review_one_dry_run_and_timeout
+test_watch_interrupt_stops_active_poll
 test_control_scripts
 
 echo "smoke-test: ok"

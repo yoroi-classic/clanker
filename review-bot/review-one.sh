@@ -261,9 +261,12 @@ run_check() {
   local label="$1"
   local command="$2"
   local workdir="${3:-$WORKTREE}"
-  local check_env="$CHECK_ENV_ROOT/$(safe_name "$label")"
-  local log_file="$LOG_DIR/$(safe_name "$label").log"
+  local check_env
+  local log_file
   local rc
+
+  check_env="$CHECK_ENV_ROOT/$(safe_name "$label")"
+  log_file="$LOG_DIR/$(safe_name "$label").log"
 
   printf 'review-bot: running %s\n' "$label"
   mkdir -p "$check_env/home" "$check_env/gh" "$check_env/xdg-config" "$check_env/xdg-cache"

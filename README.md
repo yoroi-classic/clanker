@@ -12,6 +12,22 @@ It also contains shared `standards/` plus `coding-bot/`, the reusable runtime
 instructions and launcher for starting coding-agent sessions with the same queue
 policy and review posture.
 
+## Quality checks
+
+Run the same offline quality suite used by CI:
+
+```sh
+./quality.sh
+```
+
+The command requires Bash, Git, jq, and ShellCheck. It checks every tracked
+shell script with `bash -n` and ShellCheck, validates every tracked JSON file,
+and runs the review-bot and coding-bot smoke suites. The smoke tests use local
+repositories and fake GitHub clients; they do not make live GitHub writes.
+
+The `Quality` GitHub Actions workflow installs jq and ShellCheck, then invokes
+this command for pull requests and pushes to `main`.
+
 ## Get the complete workspace
 
 For a new checkout:
