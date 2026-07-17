@@ -84,7 +84,8 @@ Start, inspect, or stop the explicit background watcher:
 ```
 
 `start.sh` writes a pid file under `runtimeRoot` and appends watcher output to
-`review-bot/logs/watch.log`.
+`review-bot/logs/watch.log`. The log rotates by size according to
+`watchLogMaxBytes` and `watchLogRetain`.
 
 `review-one.sh` is an evidence harness by default: it writes reports without
 posting to GitHub or updating review state. A semantic review agent should run
@@ -104,6 +105,11 @@ REVIEW_BOT_CONFIG=/path/to/config.json ./review-bot/start.sh
 
 When using `start.sh`, environment overrides such as `REVIEW_BOT_OWNER`,
 `REVIEW_BOT_REVIEWER`, and `REVIEW_BOT_WORKSPACE` are inherited by the watcher.
+
+Discovery calls are bounded by `discoveryTimeoutSeconds` and retried with
+exponential backoff plus bounded jitter. `discoveryRetries`,
+`discoveryRetryBaseSeconds`, and `discoveryRetryJitterSeconds` tune that policy.
+All values are validated before the watcher starts.
 
 Run the local smoke test:
 
@@ -133,6 +139,12 @@ subagent prompts to `review-bot/.runtime/prompts/`. A review agent consumes
 those prompts, runs the harness, inspects the code, posts the GitHub review, and
 records completion with `review-bot/record-review.sh`. Generated prompts embed
 the shared review standards from `standards/review.md`.
+
+Queue updates are atomic. A failed refresh preserves the last valid queue,
+records a stale result in `review-bot/.runtime/health.json`, and `status.sh`
+surfaces the last successful refresh and error. Successful polls log only queue
+additions/removals or an unchanged summary. Temporary queue and prompt files
+are removed on failures, signals, and normal exit.
 
 Each optional local review-specific check is capped by `checkTimeoutSeconds` in
 `config.json`, or by `REVIEW_BOT_CHECK_TIMEOUT_SECONDS` for a single run.

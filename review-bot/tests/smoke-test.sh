@@ -694,6 +694,111 @@ JSON
   fi
 }
 
+test_github_retry_backoff() {
+  local fake_bin="$TMP_ROOT/retry-bin"
+  local calls="$TMP_ROOT/retry-calls"
+  local output="$TMP_ROOT/retry.out"
+
+  mkdir -p "$fake_bin"
+  printf '0\n' >"$calls"
+  cat >"$fake_bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+count="$(<"$FAKE_RETRY_CALLS")"
+count="$((count + 1))"
+printf '%s\n' "$count" >"$FAKE_RETRY_CALLS"
+if (( count < 3 )); then
+  exit 1
+fi
+printf 'ok\n'
+SH
+  chmod +x "$fake_bin/gh"
+
+  # shellcheck source=/dev/null
+  source "$BOT_DIR/lib/github.sh"
+  PATH="$fake_bin:$PATH" \
+    FAKE_RETRY_CALLS="$calls" \
+    REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS=1 \
+    REVIEW_BOT_DISCOVERY_RETRIES=3 \
+    REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS=1 \
+    REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS=0 \
+    review_bot_gh api test >"$output" 2>&1
+
+  assert_contains "$output" "attempt 1/3"
+  assert_contains "$output" "attempt 2/3"
+  assert_contains "$output" "ok"
+  [[ "$(<"$calls")" == "3" ]] || fail "GitHub wrapper should retry twice before success"
+}
+
+test_watcher_preserves_queue_and_reports_stale_health() {
+  local isolated_root="$TMP_ROOT/stale-root"
+  local isolated_bot="$isolated_root/review-bot"
+  local runtime="$TMP_ROOT/stale-runtime"
+  local config="$TMP_ROOT/stale-config.json"
+  local mode_file="$TMP_ROOT/stale-mode"
+  local output="$TMP_ROOT/stale-watch.out"
+  local saved_queue="$TMP_ROOT/stale-saved-queue"
+  local rc
+
+  mkdir -p "$isolated_root"
+  cp -R "$BOT_DIR" "$isolated_bot"
+  printf 'success\n' >"$mode_file"
+  cat >"$isolated_bot/list-queue.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$(<"$FAKE_QUEUE_MODE")" == "fail" ]]; then
+  exit 1
+fi
+printf '%s\n' '{"owner":"org","repo":"sample","number":1,"head_sha":"head","base_sha":"base","title":"Sample","url":"https://example.invalid/1","author":"tester","needs_review":true}'
+SH
+  cat >"$isolated_bot/agent-prompt.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'prompt for %s#%s\n' "$1" "$2"
+SH
+  chmod +x "$isolated_bot/list-queue.sh" "$isolated_bot/agent-prompt.sh"
+
+  cat >"$config" <<JSON
+{
+  "owner": "org",
+  "reviewer": "wolf31o2",
+  "runtimeRoot": "$runtime",
+  "pollSeconds": 1,
+  "discoveryTimeoutSeconds": 1,
+  "discoveryRetries": 1,
+  "discoveryRetryBaseSeconds": 1,
+  "discoveryRetryJitterSeconds": 0,
+  "repos": {},
+  "localChecks": []
+}
+JSON
+
+  FAKE_QUEUE_MODE="$mode_file" REVIEW_BOT_CONFIG="$config" "$isolated_bot/watch.sh" once >"$output"
+  assert_contains "$output" "queue changed: +1 -0 (1 pending)"
+  cp "$runtime/queue.jsonl" "$saved_queue"
+  jq -e '.status == "healthy" and .queue_count == 1 and .added == 1' "$runtime/health.json" >/dev/null ||
+    fail "successful refresh should write healthy queue state"
+
+  FAKE_QUEUE_MODE="$mode_file" REVIEW_BOT_CONFIG="$config" "$isolated_bot/watch.sh" once >"$output"
+  assert_contains "$output" "queue unchanged (1 pending)"
+
+  printf 'fail\n' >"$mode_file"
+  set +e
+  FAKE_QUEUE_MODE="$mode_file" REVIEW_BOT_CONFIG="$config" "$isolated_bot/watch.sh" once >"$output" 2>&1
+  rc="$?"
+  set -e
+  [[ "$rc" -eq 1 ]] || fail "failed queue refresh should exit 1, got $rc"
+  cmp -s "$runtime/queue.jsonl" "$saved_queue" || fail "failed refresh should preserve last valid queue"
+  jq -e '.status == "stale" and .queue_count == 1 and .last_success != null and .error != null' "$runtime/health.json" >/dev/null ||
+    fail "failed refresh should write stale health with last success"
+  if find "$runtime" -maxdepth 1 -type f \( -name '.queue.*' -o -name '.health.*' \) | grep -q .; then
+    fail "failed refresh left temporary queue or health files"
+  fi
+  if find "$runtime/prompts" -maxdepth 1 -type f -name '.prompt.*' | grep -q .; then
+    fail "failed refresh left temporary prompt files"
+  fi
+}
+
 test_control_scripts() {
   local config="$TMP_ROOT/control-config.json"
   local runtime="$TMP_ROOT/control-runtime"
@@ -738,14 +843,22 @@ done
 SH
   chmod +x "$fake_watch"
 
+  printf '0123456789abcdef\n' >"$watch_log"
   REVIEW_BOT_CONFIG="$config" \
     REVIEW_BOT_WATCH_SCRIPT="$fake_watch" \
     REVIEW_BOT_PID_FILE="$pid_file" \
     REVIEW_BOT_WATCH_LOG="$watch_log" \
+    REVIEW_BOT_WATCH_LOG_MAX_BYTES=8 \
+    REVIEW_BOT_WATCH_LOG_RETAIN=2 \
     "$BOT_DIR/start.sh" >"$start_out" 2>&1
 
   assert_contains "$start_out" "watcher started with pid"
   assert_contains "$watch_log" "fake watcher started"
+  assert_contains "$watch_log.1" "0123456789abcdef"
+
+  cat >"$runtime/health.json" <<'JSON'
+{"status":"stale","checked_at":"2026-01-01T00:00:00Z","last_success":"2025-12-31T23:59:00Z","queue_count":2,"added":0,"removed":0,"error":"test failure"}
+JSON
 
   bogus_pid=999999
   while kill -0 "$bogus_pid" >/dev/null 2>&1; do
@@ -759,6 +872,8 @@ SH
     REVIEW_BOT_WATCH_LOG="$watch_log" \
     "$BOT_DIR/status.sh" >"$status_out" 2>&1
   assert_contains "$status_out" "watcher running with pid"
+  assert_contains "$status_out" "queue health stale; pending=2"
+  assert_contains "$status_out" "error=test failure"
   [[ "$(<"$pid_file")" != "$bogus_pid" ]] || fail "status should replace stale pid file using watch command fallback"
 
   REVIEW_BOT_CONFIG="$config" \
@@ -777,6 +892,18 @@ SH
   rc="$?"
   set -e
   [[ "$rc" -eq 1 ]] || fail "status should report stopped watcher after stop, got $rc"
+
+  set +e
+  REVIEW_BOT_CONFIG="$config" \
+    REVIEW_BOT_POLL_SECONDS=invalid \
+    REVIEW_BOT_WATCH_SCRIPT="$fake_watch" \
+    REVIEW_BOT_PID_FILE="$pid_file" \
+    REVIEW_BOT_WATCH_LOG="$watch_log" \
+    "$BOT_DIR/start.sh" >"$start_out" 2>&1
+  rc="$?"
+  set -e
+  [[ "$rc" -eq 2 ]] || fail "invalid poll configuration should exit 2, got $rc"
+  assert_contains "$start_out" "pollSeconds must be a positive integer"
 }
 
 test_pedantic_diff_check
@@ -788,6 +915,8 @@ test_agent_prompt_shared_standards_and_fallback
 test_invalid_json_config_fails_closed
 test_review_one_dry_run_and_timeout
 test_watch_interrupt_stops_active_poll
+test_github_retry_backoff
+test_watcher_preserves_queue_and_reports_stale_health
 test_control_scripts
 
 echo "smoke-test: ok"

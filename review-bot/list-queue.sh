@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
 source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/github.sh"
 REPO_ROOT="$(review_bot_repo_root "$SCRIPT_DIR")"
 MODE="${1:-pending}"
 
@@ -30,7 +31,20 @@ require() {
 require gh
 require base64
 require jq
+require timeout
 
+REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS="${REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS:-$(jq -r '.discoveryTimeoutSeconds // 30' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRIES="${REVIEW_BOT_DISCOVERY_RETRIES:-$(jq -r '.discoveryRetries // 3' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS="${REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS:-$(jq -r '.discoveryRetryBaseSeconds // 2' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS="${REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS:-$(jq -r '.discoveryRetryJitterSeconds // 1' "$CONFIG")}"
+export REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS REVIEW_BOT_DISCOVERY_RETRIES
+export REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS
+review_bot_validate_discovery_config \
+  "${REVIEW_BOT_POLL_SECONDS:-$(jq -r '.pollSeconds // 300' "$CONFIG")}" \
+  "$REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS" \
+  "$REVIEW_BOT_DISCOVERY_RETRIES" \
+  "$REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS" \
+  "$REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS"
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
@@ -44,7 +58,7 @@ else
   state="$(<"$STATE_FILE")"
 fi
 
-search_output="$(gh api -X GET /search/issues -f "q=$QUERY" -f per_page=100 --paginate --jq \
+search_output="$(review_bot_gh api -X GET /search/issues -f "q=$QUERY" -f per_page=100 --paginate --jq \
   '.items[] | {repo:(.repository_url | split("/")[-1]), number, url:.html_url, author:.user.login, title:.title} | @base64')" || {
   echo "review-bot: failed to search review-requested PRs for $REVIEWER in $OWNER" >&2
   exit 1
@@ -67,7 +81,7 @@ for row in "${rows[@]}"; do
     continue
   fi
 
-  pull="$(gh api "/repos/$OWNER/$repo/pulls/$number")"
+  pull="$(review_bot_gh api "/repos/$OWNER/$repo/pulls/$number")"
   if ! jq -e --arg reviewer "$REVIEWER" \
     'any(.requested_reviewers[]?; .login == $reviewer)' <<<"$pull" >/dev/null; then
     continue

@@ -112,7 +112,11 @@ review_bot_reviewer() {
     return
   fi
 
-  gh api user --jq '.login'
+  if declare -F review_bot_gh >/dev/null 2>&1; then
+    review_bot_gh api user --jq '.login'
+  else
+    gh api user --jq '.login'
+  fi
 }
 
 review_bot_pid_running() {

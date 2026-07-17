@@ -9,6 +9,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${REVIEW_BOT_CONFIG:-$SCRIPT_DIR/config.json}"
 source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/github.sh"
 REPO_ROOT="$(review_bot_repo_root "$SCRIPT_DIR")"
 REPO="$1"
 PR_NUMBER="$2"
@@ -22,6 +23,20 @@ require() {
 
 require gh
 require jq
+require timeout
+
+REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS="${REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS:-$(jq -r '.discoveryTimeoutSeconds // 30' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRIES="${REVIEW_BOT_DISCOVERY_RETRIES:-$(jq -r '.discoveryRetries // 3' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS="${REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS:-$(jq -r '.discoveryRetryBaseSeconds // 2' "$CONFIG")}"
+REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS="${REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS:-$(jq -r '.discoveryRetryJitterSeconds // 1' "$CONFIG")}"
+export REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS REVIEW_BOT_DISCOVERY_RETRIES
+export REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS
+review_bot_validate_discovery_config \
+  "${REVIEW_BOT_POLL_SECONDS:-$(jq -r '.pollSeconds // 300' "$CONFIG")}" \
+  "$REVIEW_BOT_DISCOVERY_TIMEOUT_SECONDS" \
+  "$REVIEW_BOT_DISCOVERY_RETRIES" \
+  "$REVIEW_BOT_DISCOVERY_RETRY_BASE_SECONDS" \
+  "$REVIEW_BOT_DISCOVERY_RETRY_JITTER_SECONDS"
 
 OWNER="$(review_bot_owner "$CONFIG")"
 REVIEWER="$(review_bot_reviewer "$CONFIG")"
@@ -32,9 +47,9 @@ LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG
 STATE_FILE="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_STATE_FILE:-}" "$CONFIG" '.stateFile' 'review-bot/state/reviews.json')"
 SHARED_REVIEW_STANDARDS="$REPO_ROOT/standards/review.md"
 
-META="$(gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
+META="$(review_bot_gh pr view "$PR_NUMBER" -R "$OWNER/$REPO" \
   --json number,title,url,headRefOid,headRefName,baseRefName,isDraft,author)"
-PULL="$(gh api "/repos/$OWNER/$REPO/pulls/$PR_NUMBER")"
+PULL="$(review_bot_gh api "/repos/$OWNER/$REPO/pulls/$PR_NUMBER")"
 
 TITLE="$(jq -r '.title' <<<"$META")"
 URL="$(jq -r '.url' <<<"$META")"

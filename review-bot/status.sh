@@ -17,6 +17,16 @@ RUNTIME_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_RUNTIME_ROOT:-}" 
 LOG_ROOT="$(review_bot_env_path "$REPO_ROOT" "${REVIEW_BOT_LOG_ROOT:-}" "$CONFIG" '.logRoot' 'review-bot/logs')"
 PID_FILE="${REVIEW_BOT_PID_FILE:-$RUNTIME_ROOT/watch.pid}"
 WATCH_LOG="${REVIEW_BOT_WATCH_LOG:-$LOG_ROOT/watch.log}"
+HEALTH_FILE="${REVIEW_BOT_HEALTH_FILE:-$RUNTIME_ROOT/health.json}"
+
+print_health() {
+  if [[ -f "$HEALTH_FILE" ]] && jq -e 'type == "object"' "$HEALTH_FILE" >/dev/null 2>&1; then
+    jq -r '"review-bot: queue health \(.status); pending=\(.queue_count); checked=\(.checked_at); last-success=\(.last_success // "never")"
+      + (if .error then "; error=" + .error else "" end)' "$HEALTH_FILE"
+  else
+    echo "review-bot: queue health unknown; no valid health file at $HEALTH_FILE"
+  fi
+}
 
 if [[ ! -f "$PID_FILE" ]]; then
   found_pid="$(review_bot_find_watch_pid "$WATCH_SCRIPT_PATH" || true)"
@@ -26,6 +36,7 @@ if [[ ! -f "$PID_FILE" ]]; then
     pid="$found_pid"
   else
     echo "review-bot: watcher is not running; no pid file at $PID_FILE"
+    print_health
     exit 1
   fi
 else
@@ -37,6 +48,7 @@ if [[ -z "$pid" ]] || ! review_bot_pid_is_watch "$pid" "$WATCH_SCRIPT_PATH"; the
   if [[ -z "$found_pid" ]]; then
     rm -f "$PID_FILE"
     echo "review-bot: watcher is not running; stale pid file at $PID_FILE"
+    print_health
     exit 1
   fi
   pid="$found_pid"
@@ -45,6 +57,7 @@ fi
 
 echo "review-bot: watcher running with pid $pid"
 echo "review-bot: log $WATCH_LOG"
+print_health
 if [[ -f "$WATCH_LOG" ]]; then
   echo "review-bot: recent log:"
   tail -20 "$WATCH_LOG"
