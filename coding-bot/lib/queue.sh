@@ -296,7 +296,8 @@ coding_bot_print_authored_prs() {
       reviews="reviews=unknown"
     fi
 
-    if coding_bot_fetch_pr_array "repos/$repo/pulls/$number/comments" &&
+    if [[ "$reviews" != "reviews=unknown" ]] &&
+      coding_bot_fetch_pr_array "repos/$repo/pulls/$number/comments" &&
       review_comments_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
       coding_bot_fetch_pr_array "repos/$repo/issues/$number/comments" &&
       issue_comments_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
@@ -323,7 +324,7 @@ coding_bot_print_authored_prs() {
           .state == "CHANGES_REQUESTED"
           or (body_text | test("(?i)(^|[^a-z0-9])p[0-3]([^a-z0-9]|$)|blocking finding|finding remains|blocks? (a )?clean merge|unresolved finding|one new issue"));
         def explicit_resolution:
-          (body_text | test("(?i)^no (blocking )?issues[.!]?|nothing outstanding|no outstanding findings?"));
+          (body_text | test("(?i)^(no (blocking )?issues( found for [0-9a-f]{7,40})?|((the finding is resolved[.]?[[:space:]]+)?(nothing outstanding|no outstanding findings?)))[.!]?$"));
         .[0] as $reviews
         | .[1] as $inline
         | .[2] as $discussion
@@ -347,13 +348,21 @@ coding_bot_print_authored_prs() {
             | select((body_text | length) > 0)
             | . + {state: "COMMENTED", target: "discussion", url: .html_url}
           ]) as $notes
-        | ($head[0:8]) as $head_short
-        | (any($notes[];
-            (.target == "current" and explicit_resolution)
-            or (.target == "discussion" and explicit_resolution and (body_text | contains($head_short)))
-          )) as $resolved_at_head
-        | (if $resolved_at_head then [] else [$notes[] | select(.target == "current" and actionable)] end) as $current
-        | (if $resolved_at_head then [] else [$notes[] | select(.target == "stale" and actionable)] end) as $stale
+        | ($head[0:7]) as $head_short
+        | def resolves($finding):
+            any($notes[];
+              explicit_resolution
+              and (
+                (.target == "current")
+                or (.target == "discussion" and (body_text | contains($head_short)))
+              )
+              and (
+                ((.user.login | ascii_downcase) == ($finding.user.login | ascii_downcase))
+                or ((.user.login | ascii_downcase) == "crypto2099")
+              )
+            );
+          [$notes[] | select(.target == "current" and actionable and (resolves(.) | not))] as $current
+        | [$notes[] | select(.target == "stale" and actionable and (resolves(.) | not))] as $stale
         | [$notes[] | select(.target == "discussion" and actionable)] as $discussion
         | (($current + $stale + $discussion | first | .url) // ($notes | first | .url) // "none") as $link
         | "review-alerts="

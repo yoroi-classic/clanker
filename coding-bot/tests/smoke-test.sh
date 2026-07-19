@@ -137,6 +137,14 @@ if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues.","html_url":"https://example.invalid/review/clear"}\n'
     exit 0
   fi
+  if [[ "$mode" == "review_cross_author_resolution" ]]; then
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"random-attacker"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues.","html_url":"https://example.invalid/review/untrusted-clear"}'
+    exit 0
+  fi
+  if [[ "$mode" == "review_non_resolution_suffix" ]]; then
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues were resolved; the finding remains.","html_url":"https://example.invalid/review/not-clear"}'
+    exit 0
+  fi
   printf '{"user":{"login":"human"},"state":"APPROVED","commit_id":"abcdef1234567890","body":"","html_url":"https://example.invalid/review/approved"}\n'
   exit 0
 fi
@@ -274,6 +282,14 @@ test_review_alert_classification() {
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_no_issues CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/clear"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_cross_author_resolution CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/current"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_non_resolution_suffix CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=2 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/current"
 
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_inline CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
