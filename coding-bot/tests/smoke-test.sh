@@ -117,6 +117,12 @@ fi
 
 if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
   [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
+  if [[ "$mode" == "partial_review_failure" ]]; then
+    for index in $(seq 1 101); do
+      printf '{"user":{"login":"reviewer-%s"},"state":"COMMENTED","commit_id":"old-head","body":"note","html_url":"https://example.invalid/review/%s"}\n' "$index" "$index"
+    done
+    exit 1
+  fi
   if [[ "$mode" == "malformed_reviews" ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
@@ -333,7 +339,7 @@ test_queue_response_validation_and_caps() {
 
   write_paginated_gh "$fake_bin" "$calls"
 
-  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments truncated_checks capped_search; do
+  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments partial_review_failure truncated_checks capped_search; do
     PATH="$fake_bin:$PATH" \
       FAKE_GH_CALL_LOG="$calls" \
       FAKE_GH_MODE="$mode" \
@@ -358,6 +364,10 @@ test_queue_response_validation_and_caps() {
         ;;
       malformed_reviews)
         assert_contains "$output" "reviews=unknown"
+        ;;
+      partial_review_failure)
+        assert_contains "$output" "reviews=unknown"
+        assert_contains "$output" "Queue REST fan-out: 8 HTTP request(s): 3 paginated search page(s) and 5 PR detail/check/review request(s) for 2 authored PR(s)."
         ;;
       malformed_review_comments|malformed_issue_comments)
         assert_contains "$output" "review-alerts=unknown"

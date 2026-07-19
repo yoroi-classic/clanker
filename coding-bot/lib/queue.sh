@@ -116,14 +116,24 @@ coding_bot_fetch_pr_array() {
 
   CODING_BOT_PAGINATED_ARRAY_JSON=""
   if ! raw_items="$(gh api --paginate -X GET "$endpoint" -f per_page=100 --jq '.[]' 2>/dev/null)"; then
-    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
-    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
+    item_count="$(jq -sce 'length' <<<"$raw_items" 2>/dev/null || printf '0')"
+    page_count="$(((item_count + 99) / 100))"
+    if [[ "$page_count" -eq 0 ]]; then
+      page_count=1
+    fi
+    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + page_count))"
+    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + page_count))"
     return 1
   fi
   if ! CODING_BOT_PAGINATED_ARRAY_JSON="$(jq -sce '.' <<<"$raw_items" 2>/dev/null)" ||
     ! item_count="$(jq -er 'length' <<<"$CODING_BOT_PAGINATED_ARRAY_JSON" 2>/dev/null)"; then
-    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
-    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
+    item_count="$(jq -sce 'length' <<<"$raw_items" 2>/dev/null || printf '0')"
+    page_count="$(((item_count + 99) / 100))"
+    if [[ "$page_count" -eq 0 ]]; then
+      page_count=1
+    fi
+    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + page_count))"
+    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + page_count))"
     return 1
   fi
   page_count="$(((item_count + 99) / 100))"
