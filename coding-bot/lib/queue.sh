@@ -7,6 +7,7 @@ CODING_BOT_QUEUE_AUTHORED_PRS=0
 CODING_BOT_QUEUE_PR_DETAIL_CALLS=0
 CODING_BOT_SEARCH_JSON=""
 CODING_BOT_SEARCH_ERROR=""
+CODING_BOT_PAGINATED_ARRAY_JSON=""
 
 coding_bot_queue_begin() {
   CODING_BOT_QUEUE_READY=0
@@ -44,6 +45,7 @@ coding_bot_fetch_search() {
 
   CODING_BOT_SEARCH_JSON=""
   CODING_BOT_SEARCH_ERROR=""
+  CODING_BOT_PAGINATED_ARRAY_JSON=""
   CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
   if ! raw_pages="$(gh api --paginate -X GET search/issues \
     -f q="$query_text" \
@@ -106,6 +108,32 @@ coding_bot_fetch_search() {
   fi
 }
 
+coding_bot_fetch_pr_array() {
+  local endpoint="$1"
+  local raw_items
+  local item_count
+  local page_count
+
+  CODING_BOT_PAGINATED_ARRAY_JSON=""
+  if ! raw_items="$(gh api --paginate -X GET "$endpoint" -f per_page=100 --jq '.[]' 2>/dev/null)"; then
+    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
+    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
+    return 1
+  fi
+  if ! CODING_BOT_PAGINATED_ARRAY_JSON="$(jq -sce '.' <<<"$raw_items" 2>/dev/null)" ||
+    ! item_count="$(jq -er 'length' <<<"$CODING_BOT_PAGINATED_ARRAY_JSON" 2>/dev/null)"; then
+    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
+    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
+    return 1
+  fi
+  page_count="$(((item_count + 99) / 100))"
+  if [[ "$page_count" -eq 0 ]]; then
+    page_count=1
+  fi
+  CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + page_count))"
+  CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + page_count))"
+}
+
 coding_bot_print_assigned_issues() {
   local title="$1"
   local query_text="$2"
@@ -154,12 +182,15 @@ coding_bot_print_authored_prs() {
   local pr_json
   local checks_json
   local reviews_json
+  local review_comments_json
+  local issue_comments_json
   local head_sha
   local head_short
   local draft
   local reviewers
   local checks
   local reviews
+  local review_alerts
   local check_count
   local check_total
 
@@ -249,9 +280,8 @@ coding_bot_print_authored_prs() {
       checks="checks=unknown"
     fi
 
-    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
-    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
-    if reviews_json="$(gh api -X GET "repos/$repo/pulls/$number/reviews" -f per_page=100 2>/dev/null)" &&
+    if coding_bot_fetch_pr_array "repos/$repo/pulls/$number/reviews" &&
+      reviews_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
       jq -e '
         type == "array"
         and all(.[]; (.state | type == "string") and (.user.login | type == "string"))
@@ -266,8 +296,84 @@ coding_bot_print_authored_prs() {
       reviews="reviews=unknown"
     fi
 
-    printf -- '- %s#%s: %s [head=%s, draft=%s, requested=%s, %s, %s] %s\n' \
-      "$repo" "$number" "$pr_title" "$head_short" "$draft" "$reviewers" "$reviews" "$checks" "$url"
+    if coding_bot_fetch_pr_array "repos/$repo/pulls/$number/comments" &&
+      review_comments_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
+      coding_bot_fetch_pr_array "repos/$repo/issues/$number/comments" &&
+      issue_comments_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
+      jq -e '
+        type == "array"
+        and all(.[];
+          (.body | type == "string")
+          and (.user.login | type == "string")
+          and (.html_url | type == "string")
+          and (.commit_id | type == "string")
+        )
+      ' <<<"$review_comments_json" >/dev/null 2>&1 &&
+      jq -e '
+        type == "array"
+        and all(.[];
+          (.body | type == "string")
+          and (.user.login | type == "string")
+          and (.html_url | type == "string")
+        )
+      ' <<<"$issue_comments_json" >/dev/null 2>&1 &&
+      review_alerts="$(printf '%s\n%s\n%s\n' "$reviews_json" "$review_comments_json" "$issue_comments_json" | jq -ser --arg head "$head_sha" '
+        def body_text: (.body // "") | gsub("^[[:space:]]+|[[:space:]]+$"; "");
+        def actionable:
+          .state == "CHANGES_REQUESTED"
+          or (body_text | test("(?i)(^|[^a-z0-9])p[0-3]([^a-z0-9]|$)|blocking finding|finding remains|blocks? (a )?clean merge|unresolved finding|one new issue"));
+        def explicit_resolution:
+          (body_text | test("(?i)^no (blocking )?issues[.!]?|nothing outstanding|no outstanding findings?"));
+        .[0] as $reviews
+        | .[1] as $inline
+        | .[2] as $discussion
+        | ([
+            $reviews[]
+            | select((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0)
+            | . + {
+                target: (if .commit_id == $head then "current" else "stale" end),
+                url: (.html_url // "")
+              }
+          ] + [
+            $inline[]
+            | select((body_text | length) > 0)
+            | . + {
+                state: "COMMENTED",
+                target: (if .commit_id == $head then "current" else "stale" end),
+                url: .html_url
+              }
+          ] + [
+            $discussion[]
+            | select((body_text | length) > 0)
+            | . + {state: "COMMENTED", target: "discussion", url: .html_url}
+          ]) as $notes
+        | ($head[0:8]) as $head_short
+        | (any($notes[];
+            (.target == "current" and explicit_resolution)
+            or (.target == "discussion" and explicit_resolution and (body_text | contains($head_short)))
+          )) as $resolved_at_head
+        | (if $resolved_at_head then [] else [$notes[] | select(.target == "current" and actionable)] end) as $current
+        | (if $resolved_at_head then [] else [$notes[] | select(.target == "stale" and actionable)] end) as $stale
+        | [$notes[] | select(.target == "discussion" and actionable)] as $discussion
+        | (($current + $stale + $discussion | first | .url) // ($notes | first | .url) // "none") as $link
+        | "review-alerts="
+          + (($current | length) | tostring)
+          + " current/"
+          + (($stale | length) | tostring)
+          + " stale/"
+          + (($discussion | length) | tostring)
+          + " discussion, notes="
+          + (($notes | length) | tostring)
+          + ", link="
+          + $link
+      ' 2>/dev/null)"; then
+      :
+    else
+      review_alerts="review-alerts=unknown"
+    fi
+
+    printf -- '- %s#%s: %s [head=%s, draft=%s, requested=%s, %s, %s, %s] %s\n' \
+      "$repo" "$number" "$pr_title" "$head_short" "$draft" "$reviewers" "$reviews" "$review_alerts" "$checks" "$url"
   done <<<"$rows"
 }
 
@@ -281,5 +387,5 @@ coding_bot_print_queue_metrics() {
     "$CODING_BOT_QUEUE_SEARCH_PAGES" \
     "$CODING_BOT_QUEUE_PR_DETAIL_CALLS" \
     "$CODING_BOT_QUEUE_AUTHORED_PRS"
-  printf 'Search results use REST pagination at 100 items per page; successful PR expansion costs three additional requests per PR.\n'
+  printf 'Search results use REST pagination at 100 items per page; successful PR expansion costs at least five additional requests per PR.\n'
 }

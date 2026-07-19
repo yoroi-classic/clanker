@@ -116,11 +116,52 @@ if [[ "$*" == *"repos/org/first/pulls/1"* ]]; then
 fi
 
 if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
+  [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
   if [[ "$mode" == "malformed_reviews" ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
   fi
-  printf '[{"user":{"login":"human"},"state":"APPROVED"}]\n'
+  if [[ "$mode" == "review_findings" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
+    exit 0
+  fi
+  if [[ "$mode" == "review_stale" || "$mode" == "review_resolved" ]]; then
+    if [[ "$mode" == "review_resolved" ]]; then
+      printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"The finding is resolved. Nothing outstanding.","html_url":"https://example.invalid/review/resolved"}'
+    else
+      printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}\n'
+    fi
+    exit 0
+  fi
+  if [[ "$mode" == "review_no_issues" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues.","html_url":"https://example.invalid/review/clear"}\n'
+    exit 0
+  fi
+  printf '{"user":{"login":"human"},"state":"APPROVED","commit_id":"abcdef1234567890","body":"","html_url":"https://example.invalid/review/approved"}\n'
+  exit 0
+fi
+
+if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
+  [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
+  if [[ "$mode" == "malformed_review_comments" ]]; then
+    printf '{"message":"unexpected success body"}\n'
+    exit 0
+  fi
+  if [[ "$mode" == "review_inline" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n'
+  fi
+  exit 0
+fi
+
+if [[ "$*" == *"repos/org/second/issues/2/comments"* ]]; then
+  [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
+  if [[ "$mode" == "malformed_issue_comments" ]]; then
+    printf '{"message":"unexpected success body"}\n'
+    exit 0
+  fi
+  if [[ "$mode" == "review_discussion" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
+  fi
   exit 0
 fi
 
@@ -176,7 +217,7 @@ test_start_and_shared_paginated_queue() {
   assert_contains "$start_output" "## standards/review.md"
   assert_contains "$start_output" "org/first#1: Unavailable details [details=unavailable]"
   assert_contains "$start_output" "org/work#3: Assigned work"
-  assert_contains "$start_output" "Queue REST fan-out: 7 HTTP request(s)"
+  assert_contains "$start_output" "Queue REST fan-out: 9 HTTP request(s)"
 
   PATH="$fake_bin:$PATH" \
     FAKE_GH_CALL_LOG="$calls" \
@@ -193,9 +234,9 @@ test_start_and_shared_paginated_queue() {
   cmp -s "$first" "$second" || fail "queue output should be stable across identical responses"
   assert_contains "$first" 'Start `3` additional worker(s).'
   assert_contains "$first" "org/first#1: Unavailable details [details=unavailable]"
-  assert_contains "$first" "org/second#2: Stable second PR [head=abcdef1, draft=false, requested=human, reviews=human:APPROVED, checks=0 fail/1 pending/2 total]"
+  assert_contains "$first" "org/second#2: Stable second PR [head=abcdef1, draft=false, requested=human, reviews=human:APPROVED, review-alerts=0 current/0 stale/0 discussion, notes=0, link=none, checks=0 fail/1 pending/2 total]"
   assert_contains "$first" "org/work#3: Assigned work"
-  assert_contains "$first" "Queue REST fan-out: 7 HTTP request(s): 3 paginated search page(s) and 4 PR detail/check/review request(s) for 2 authored PR(s)."
+  assert_contains "$first" "Queue REST fan-out: 9 HTTP request(s): 3 paginated search page(s) and 6 PR detail/check/review request(s) for 2 authored PR(s)."
   assert_contains "$calls" "api --paginate -X GET search/issues"
 
   "$BOT_DIR/bin/worker-plan.sh" --no-queue 1 4 >"$first"
@@ -209,6 +250,38 @@ test_start_and_shared_paginated_queue() {
   set -e
   [[ "$rc" -eq 2 ]] || fail "invalid worker target should exit 2, got $rc"
   assert_contains "$first" "usage:"
+}
+
+test_review_alert_classification() {
+  local fake_bin="$TMP_ROOT/review-bin"
+  local calls="$TMP_ROOT/review-calls.log"
+  local output="$TMP_ROOT/review.out"
+
+  write_paginated_gh "$fake_bin" "$calls"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_findings CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/current"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_stale CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/1 stale/0 discussion, notes=1, link=https://example.invalid/review/stale"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_resolved CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_no_issues CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/clear"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_inline CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_discussion CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/1 discussion, notes=1, link=https://example.invalid/review/discussion"
 }
 
 test_unauthenticated_queue_fallback() {
@@ -244,7 +317,7 @@ test_queue_response_validation_and_caps() {
 
   write_paginated_gh "$fake_bin" "$calls"
 
-  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews truncated_checks capped_search; do
+  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments truncated_checks capped_search; do
     PATH="$fake_bin:$PATH" \
       FAKE_GH_CALL_LOG="$calls" \
       FAKE_GH_MODE="$mode" \
@@ -269,6 +342,9 @@ test_queue_response_validation_and_caps() {
         ;;
       malformed_reviews)
         assert_contains "$output" "reviews=unknown"
+        ;;
+      malformed_review_comments|malformed_issue_comments)
+        assert_contains "$output" "review-alerts=unknown"
         ;;
       truncated_checks)
         assert_contains "$output" "checks=incomplete(2/3)"
@@ -417,6 +493,7 @@ test_workspace_status_json_and_stability() {
 }
 
 test_start_and_shared_paginated_queue
+test_review_alert_classification
 test_unauthenticated_queue_fallback
 test_queue_response_validation_and_caps
 test_workspace_status_json_and_stability
