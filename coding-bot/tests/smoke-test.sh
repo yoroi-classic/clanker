@@ -131,7 +131,7 @@ if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
     exit 0
   fi
-  if [[ "$mode" == "review_stale" || "$mode" == "review_resolved" ]]; then
+  if [[ "$mode" == "review_stale" || "$mode" == "review_resolved" || "$mode" == "discussion_resolution" || "$mode" == "discussion_wrong_hash" ]]; then
     if [[ "$mode" == "review_resolved" ]]; then
       printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"The finding is resolved. Nothing outstanding.","html_url":"https://example.invalid/review/resolved"}'
     else
@@ -175,6 +175,10 @@ if [[ "$*" == *"repos/org/second/issues/2/comments"* ]]; then
   fi
   if [[ "$mode" == "review_discussion" ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
+  elif [[ "$mode" == "discussion_resolution" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"body":"No issues found for abcdef1234567890.","html_url":"https://example.invalid/review/discussion-clear"}\n'
+  elif [[ "$mode" == "discussion_wrong_hash" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"body":"No issues found for 0abcdef1234567890.","html_url":"https://example.invalid/review/wrong-hash"}\n'
   fi
   exit 0
 fi
@@ -304,6 +308,14 @@ test_review_alert_classification() {
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_discussion CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=0 current/0 stale/1 discussion, notes=1, link=https://example.invalid/review/discussion"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=discussion_resolution CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=discussion_wrong_hash CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/1 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
 }
 
 test_unauthenticated_queue_fallback() {

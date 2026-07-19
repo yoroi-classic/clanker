@@ -364,7 +364,10 @@ coding_bot_print_authored_prs() {
               explicit_resolution
               and (
                 (.target == "current")
-                or (.target == "discussion" and (body_text | contains($head_short)))
+                or (
+                  .target == "discussion"
+                  and (body_text | test("(?i)(^|[^0-9a-f])" + $head_short + "[0-9a-f]{0,33}([^0-9a-f]|$)"))
+                )
               )
               and (
                 ((.user.login | ascii_downcase) == ($finding.user.login | ascii_downcase))
