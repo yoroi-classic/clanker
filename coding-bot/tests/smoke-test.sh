@@ -135,6 +135,10 @@ if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
     exit 0
   fi
+  if [[ "$mode" == "invalid_review_timestamp" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-02-31T00:00:00Z","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
+    exit 0
+  fi
   if [[ "$mode" == "review_stale" || "$mode" == "review_resolved" || "$mode" == "discussion_resolution" || "$mode" == "discussion_wrong_hash" ]]; then
     if [[ "$mode" == "review_resolved" ]]; then
       printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","submitted_at":"2026-01-01T00:00:00Z","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:01:00Z","body":"The finding is resolved. Nothing outstanding.","html_url":"https://example.invalid/review/resolved"}'
@@ -169,8 +173,13 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
   fi
-  if [[ "$mode" == "review_inline" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n'
+  if [[ "$mode" == "review_inline" || "$mode" == "invalid_inline_timestamp" ]]; then
+    if [[ "$mode" == "invalid_inline_timestamp" ]]; then
+      timestamp="2026-02-31T00:00:00Z"
+    else
+      timestamp="2026-01-01T00:00:00Z"
+    fi
+    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"%s","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n' "$timestamp"
   fi
   exit 0
 fi
@@ -183,6 +192,8 @@ if [[ "$*" == *"repos/org/second/issues/2/comments"* ]]; then
   fi
   if [[ "$mode" == "review_discussion" ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:00:00Z","body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
+  elif [[ "$mode" == "invalid_discussion_timestamp" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-02-31T00:00:00Z","body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
   elif [[ "$mode" == "discussion_resolution" ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:01:00Z","body":"No issues found for abcdef1234567890.","html_url":"https://example.invalid/review/discussion-clear"}\n'
   elif [[ "$mode" == "discussion_finding_resolved" ]]; then
@@ -369,7 +380,7 @@ test_queue_response_validation_and_caps() {
 
   write_paginated_gh "$fake_bin" "$calls"
 
-  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments missing_review_timestamp partial_review_failure truncated_checks capped_search; do
+  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments missing_review_timestamp invalid_review_timestamp invalid_inline_timestamp invalid_discussion_timestamp partial_review_failure truncated_checks capped_search; do
     PATH="$fake_bin:$PATH" \
       FAKE_GH_CALL_LOG="$calls" \
       FAKE_GH_MODE="$mode" \
@@ -399,7 +410,7 @@ test_queue_response_validation_and_caps() {
         assert_contains "$output" "reviews=unknown"
         assert_contains "$output" "Queue REST fan-out: 8 HTTP request(s): 3 paginated search page(s) and 5 PR detail/check/review request(s) for 2 authored PR(s)."
         ;;
-      malformed_review_comments|malformed_issue_comments|missing_review_timestamp)
+      malformed_review_comments|malformed_issue_comments|missing_review_timestamp|invalid_review_timestamp|invalid_inline_timestamp|invalid_discussion_timestamp)
         assert_contains "$output" "review-alerts=unknown"
         ;;
       truncated_checks)

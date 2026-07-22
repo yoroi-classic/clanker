@@ -312,25 +312,43 @@ coding_bot_print_authored_prs() {
       coding_bot_fetch_pr_array "repos/$repo/issues/$number/comments" &&
       issue_comments_json="$CODING_BOT_PAGINATED_ARRAY_JSON" &&
       jq -e '
+        def valid_timestamp:
+          . as $timestamp
+          | type == "string"
+            and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+            and ((try fromdateiso8601 catch null) as $epoch
+              | $epoch != null and (($epoch | todateiso8601) == $timestamp));
         type == "array"
         and all(.[];
           (.body | type == "string")
           and (.user.login | type == "string")
           and (.html_url | type == "string")
           and (.commit_id | type == "string")
-          and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+          and (.created_at | valid_timestamp)
         )
       ' <<<"$review_comments_json" >/dev/null 2>&1 &&
       jq -e '
+        def valid_timestamp:
+          . as $timestamp
+          | type == "string"
+            and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+            and ((try fromdateiso8601 catch null) as $epoch
+              | $epoch != null and (($epoch | todateiso8601) == $timestamp));
         type == "array"
         and all(.[];
           (.body | type == "string")
           and (.user.login | type == "string")
           and (.html_url | type == "string")
-          and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+          and (.created_at | valid_timestamp)
         )
       ' <<<"$issue_comments_json" >/dev/null 2>&1 &&
       review_alerts="$(printf '%s\n%s\n%s\n' "$reviews_json" "$review_comments_json" "$issue_comments_json" | jq -ser --arg head "$head_sha" '
+        def valid_timestamp:
+          . as $timestamp
+          | type == "string"
+            and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+            and ((try fromdateiso8601 catch null) as $epoch
+              | $epoch != null and (($epoch | todateiso8601) == $timestamp));
         def body_text: (.body // "") | gsub("^[[:space:]]+|[[:space:]]+$"; "");
         def actionable:
           .state == "CHANGES_REQUESTED"
@@ -342,7 +360,7 @@ coding_bot_print_authored_prs() {
         | .[2] as $discussion
         | if all($reviews[];
             (((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0) | not)
-            or (.submitted_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+            or (.submitted_at | valid_timestamp)
           )
           then .
           else error("review note is missing a valid submission timestamp")
