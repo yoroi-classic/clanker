@@ -128,27 +128,35 @@ if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
     exit 0
   fi
   if [[ "$mode" == "review_findings" ]]; then
+    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:00:00Z","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
+    exit 0
+  fi
+  if [[ "$mode" == "missing_review_timestamp" ]]; then
     printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"P2: current finding","html_url":"https://example.invalid/review/current"}\n'
     exit 0
   fi
   if [[ "$mode" == "review_stale" || "$mode" == "review_resolved" || "$mode" == "discussion_resolution" || "$mode" == "discussion_wrong_hash" ]]; then
     if [[ "$mode" == "review_resolved" ]]; then
-      printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"The finding is resolved. Nothing outstanding.","html_url":"https://example.invalid/review/resolved"}'
+      printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","submitted_at":"2026-01-01T00:00:00Z","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:01:00Z","body":"The finding is resolved. Nothing outstanding.","html_url":"https://example.invalid/review/resolved"}'
     else
-      printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}\n'
+      printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"old-head","submitted_at":"2026-01-01T00:00:00Z","body":"P3: stale finding","html_url":"https://example.invalid/review/stale"}\n'
     fi
     exit 0
   fi
   if [[ "$mode" == "review_no_issues" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues.","html_url":"https://example.invalid/review/clear"}\n'
+    printf '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:00:00Z","body":"No issues.","html_url":"https://example.invalid/review/clear"}\n'
     exit 0
   fi
   if [[ "$mode" == "review_cross_author_resolution" ]]; then
-    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"random-attacker"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues.","html_url":"https://example.invalid/review/untrusted-clear"}'
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:00:00Z","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"random-attacker"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:01:00Z","body":"No issues.","html_url":"https://example.invalid/review/untrusted-clear"}'
     exit 0
   fi
   if [[ "$mode" == "review_non_resolution_suffix" ]]; then
-    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","body":"No issues were resolved; the finding remains.","html_url":"https://example.invalid/review/not-clear"}'
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:00:00Z","body":"P1: current finding","html_url":"https://example.invalid/review/current"}' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:01:00Z","body":"No issues were resolved; the finding remains.","html_url":"https://example.invalid/review/not-clear"}'
+    exit 0
+  fi
+  if [[ "$mode" == "review_early_resolution" ]]; then
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"state":"COMMENTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:00:00Z","body":"No issues.","html_url":"https://example.invalid/review/early-clear"}' '{"user":{"login":"ember-review[bot]"},"state":"CHANGES_REQUESTED","commit_id":"abcdef1234567890","submitted_at":"2026-01-01T00:01:00Z","body":"P1: later current finding","html_url":"https://example.invalid/review/later-finding"}'
     exit 0
   fi
   printf '{"user":{"login":"human"},"state":"APPROVED","commit_id":"abcdef1234567890","body":"","html_url":"https://example.invalid/review/approved"}\n'
@@ -162,7 +170,7 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
     exit 0
   fi
   if [[ "$mode" == "review_inline" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n'
+    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n'
   fi
   exit 0
 fi
@@ -174,11 +182,13 @@ if [[ "$*" == *"repos/org/second/issues/2/comments"* ]]; then
     exit 0
   fi
   if [[ "$mode" == "review_discussion" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
+    printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:00:00Z","body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}\n'
   elif [[ "$mode" == "discussion_resolution" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"body":"No issues found for abcdef1234567890.","html_url":"https://example.invalid/review/discussion-clear"}\n'
+    printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:01:00Z","body":"No issues found for abcdef1234567890.","html_url":"https://example.invalid/review/discussion-clear"}\n'
+  elif [[ "$mode" == "discussion_finding_resolved" ]]; then
+    printf '%s\n' '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:00:00Z","body":"P3: discussion finding","html_url":"https://example.invalid/review/discussion"}' '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:01:00Z","body":"No issues found for abcdef1234567890.","html_url":"https://example.invalid/review/discussion-clear"}'
   elif [[ "$mode" == "discussion_wrong_hash" ]]; then
-    printf '{"user":{"login":"ember-review[bot]"},"body":"No issues found for 0abcdef1234567890.","html_url":"https://example.invalid/review/wrong-hash"}\n'
+    printf '{"user":{"login":"ember-review[bot]"},"created_at":"2026-01-01T00:01:00Z","body":"No issues found for 0abcdef1234567890.","html_url":"https://example.invalid/review/wrong-hash"}\n'
   fi
   exit 0
 fi
@@ -301,6 +311,10 @@ test_review_alert_classification() {
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=2 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/current"
 
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_early_resolution CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/later-finding"
+
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_inline CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline"
@@ -312,6 +326,10 @@ test_review_alert_classification() {
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=discussion_resolution CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=discussion_finding_resolved CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=2, link=https://example.invalid/review/discussion"
 
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=discussion_wrong_hash CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
@@ -351,7 +369,7 @@ test_queue_response_validation_and_caps() {
 
   write_paginated_gh "$fake_bin" "$calls"
 
-  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments partial_review_failure truncated_checks capped_search; do
+  for mode in malformed_search incomplete_search malformed_pr malformed_checks malformed_reviews malformed_review_comments malformed_issue_comments missing_review_timestamp partial_review_failure truncated_checks capped_search; do
     PATH="$fake_bin:$PATH" \
       FAKE_GH_CALL_LOG="$calls" \
       FAKE_GH_MODE="$mode" \
@@ -381,7 +399,7 @@ test_queue_response_validation_and_caps() {
         assert_contains "$output" "reviews=unknown"
         assert_contains "$output" "Queue REST fan-out: 8 HTTP request(s): 3 paginated search page(s) and 5 PR detail/check/review request(s) for 2 authored PR(s)."
         ;;
-      malformed_review_comments|malformed_issue_comments)
+      malformed_review_comments|malformed_issue_comments|missing_review_timestamp)
         assert_contains "$output" "review-alerts=unknown"
         ;;
       truncated_checks)

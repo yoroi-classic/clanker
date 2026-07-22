@@ -318,6 +318,7 @@ coding_bot_print_authored_prs() {
           and (.user.login | type == "string")
           and (.html_url | type == "string")
           and (.commit_id | type == "string")
+          and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
         )
       ' <<<"$review_comments_json" >/dev/null 2>&1 &&
       jq -e '
@@ -326,6 +327,7 @@ coding_bot_print_authored_prs() {
           (.body | type == "string")
           and (.user.login | type == "string")
           and (.html_url | type == "string")
+          and (.created_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
         )
       ' <<<"$issue_comments_json" >/dev/null 2>&1 &&
       review_alerts="$(printf '%s\n%s\n%s\n' "$reviews_json" "$review_comments_json" "$issue_comments_json" | jq -ser --arg head "$head_sha" '
@@ -338,12 +340,20 @@ coding_bot_print_authored_prs() {
         .[0] as $reviews
         | .[1] as $inline
         | .[2] as $discussion
+        | if all($reviews[];
+            (((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0) | not)
+            or (.submitted_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+          )
+          then .
+          else error("review note is missing a valid submission timestamp")
+          end
         | ([
             $reviews[]
             | select((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0)
             | . + {
                 target: (if .commit_id == $head then "current" else "stale" end),
-                url: (.html_url // "")
+                url: (.html_url // ""),
+                timestamp: .submitted_at
               }
           ] + [
             $inline[]
@@ -351,17 +361,19 @@ coding_bot_print_authored_prs() {
             | . + {
                 state: "COMMENTED",
                 target: (if .commit_id == $head then "current" else "stale" end),
-                url: .html_url
+                url: .html_url,
+                timestamp: .created_at
               }
           ] + [
             $discussion[]
             | select((body_text | length) > 0)
-            | . + {state: "COMMENTED", target: "discussion", url: .html_url}
+            | . + {state: "COMMENTED", target: "discussion", url: .html_url, timestamp: .created_at}
           ]) as $notes
         | ($head[0:7]) as $head_short
         | def resolves($finding):
             any($notes[];
               explicit_resolution
+              and .timestamp > $finding.timestamp
               and (
                 (.target == "current")
                 or (
@@ -376,7 +388,7 @@ coding_bot_print_authored_prs() {
             );
           [$notes[] | select(.target == "current" and actionable and (resolves(.) | not))] as $current
         | [$notes[] | select(.target == "stale" and actionable and (resolves(.) | not))] as $stale
-        | [$notes[] | select(.target == "discussion" and actionable)] as $discussion
+        | [$notes[] | select(.target == "discussion" and actionable and (resolves(.) | not))] as $discussion
         | (($current + $stale + $discussion | first | .url) // ($notes | first | .url) // "none") as $link
         | "review-alerts="
           + (($current | length) | tostring)
