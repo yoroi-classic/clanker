@@ -452,6 +452,7 @@ test_workspace_status_json_and_stability() {
   local seeds="$TMP_ROOT/workspace-seeds"
   local first="$TMP_ROOT/workspace-first.json"
   local second="$TMP_ROOT/workspace-second.json"
+  local stale_upstream="$TMP_ROOT/workspace-stale-upstream.json"
   local dot_attached="$TMP_ROOT/workspace-dot-attached.json"
   local dot_detached="$TMP_ROOT/workspace-dot-detached.json"
   local escaped_output="$TMP_ROOT/workspace-escaped.out"
@@ -508,6 +509,15 @@ test_workspace_status_json_and_stability() {
       and .recursive_missing == "1"
       and .pin_mismatch == "unknown"
   ' "$first" >/dev/null || fail "workspace status should report missing submodule state"
+
+  git -C "$workspace/repos/with space" config branch.main.merge refs/heads/deleted
+  "$workspace/workspace-status.sh" --json >"$stale_upstream"
+  jq -e '
+    map(select(.repository == "repos/with space"))[0]
+    | .branch == "main" and .ahead == "-" and .behind == "-"
+  ' "$stale_upstream" >/dev/null ||
+    fail "workspace status should tolerate a configured but missing upstream ref"
+  git -C "$workspace/repos/with space" config branch.main.merge refs/heads/main
 
   git -C "$workspace" config -f .gitmodules "submodule.repos/with space.branch" .
   "$workspace/workspace-status.sh" --json >"$dot_attached"
