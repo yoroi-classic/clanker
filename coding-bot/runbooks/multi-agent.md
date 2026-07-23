@@ -15,6 +15,9 @@ Use the worker-plan helper when scaling:
 - Tell each worker the exact repository, branch policy, issue/PR links, and
   write scope.
 - Workers must use existing PR branches for review fixes.
+- Workers must preserve published branch history. After the first push, use
+  additive commits for every review, CI, and base-refresh follow-up; never
+  force-push, amend, rebase, or otherwise rewrite the published branch.
 - Workers must not revert other people's changes.
 - Workers must keep generated scratch files inside their bot-owned runtime
   workspace so they can delete those files safely.
