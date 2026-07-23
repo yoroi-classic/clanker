@@ -23,6 +23,12 @@
   instead of the unsigned automation default.
 - Check `git status --short --branch` before editing, before committing, and
   before final reporting.
+- Once a branch has been pushed or has an open pull request, preserve its
+  published history. Do not force-push, amend published commits, rebase, or
+  otherwise rewrite it. Apply review and CI fixes as additive commits and push
+  normally so every new head reliably retriggers checks and review integrations.
+  When a published branch needs a newer base, merge that base with an additive
+  commit and preserve the recorded conflict resolution.
 - Never revert user or coworker changes unless explicitly asked.
 - Keep refactor edits small, direct, and reviewable.
 - Do not leave generated artifacts, coverage output, tarballs, caches, or temp
