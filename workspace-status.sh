@@ -103,7 +103,14 @@ while IFS= read -r -d '' entry; do
       dirty="no"
     fi
 
-    upstream="$(git -C "$repository_path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+    upstream="$(
+      git -C "$repository_path" rev-parse \
+        --verify \
+        --abbrev-ref \
+        --symbolic-full-name \
+        '@{upstream}' 2>/dev/null ||
+        true
+    )"
     if [[ -n "$upstream" ]]; then
       read -r ahead behind < <(
         git -C "$repository_path" rev-list --left-right --count "HEAD...$upstream"
