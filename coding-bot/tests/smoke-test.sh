@@ -168,7 +168,7 @@ if [[ "$*" == *"repos/org/second/pulls/2/reviews"* ]]; then
 fi
 
 if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
-  [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
+  [[ "$*" == *"--paginate"* && "$*" == *"-X GET"* && "$*" == *"--jq .[]"* ]] || exit 97
   if [[ "$mode" == "malformed_review_comments" ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
@@ -185,7 +185,7 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
 fi
 
 if [[ "$*" == *"repos/org/second/issues/2/comments"* ]]; then
-  [[ "$*" == *"--paginate"* && "$*" == *"--jq .[]"* ]] || exit 97
+  [[ "$*" == *"--paginate"* && "$*" == *"-X GET"* && "$*" == *"--jq .[]"* ]] || exit 97
   if [[ "$mode" == "malformed_issue_comments" ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
@@ -277,6 +277,8 @@ test_start_and_shared_paginated_queue() {
   assert_contains "$first" "org/work#3: Assigned work"
   assert_contains "$first" "Queue REST fan-out: 9 HTTP request(s): 3 paginated search page(s) and 6 PR detail/check/review request(s) for 2 authored PR(s)."
   assert_contains "$calls" "api --paginate -X GET search/issues"
+  assert_contains "$calls" "api --paginate -X GET repos/org/second/pulls/2/comments -f per_page=100 --jq .[]"
+  assert_contains "$calls" "api --paginate -X GET repos/org/second/issues/2/comments -f per_page=100 --jq .[]"
 
   "$BOT_DIR/bin/worker-plan.sh" --no-queue 1 4 >"$first"
   assert_contains "$first" 'Stop or do not replace `3` worker(s).'
