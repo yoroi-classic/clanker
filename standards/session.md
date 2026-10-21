@@ -71,6 +71,14 @@
 - Pool metadata work should consider IOHK's SMASH server.
 - Prefer dcSpark `cardano-multiplatform-lib` over maintaining our own CSL fork
   for future migration work.
+- CSL-to-CML migration is complete only when CSL runtime and build dependencies,
+  imports, lockfile entries, and reachable fallback paths are gone from the
+  frontends and wallet-backend. Search every affected repository and package,
+  not just the primary transaction path.
+- A full cutover to `cardano-wallet-backend` means clients are configured to
+  use it in every supported platform and build. Do not preserve a silent CSL
+  or legacy-backend fallback as a substitute for wiring and testing the target
+  backend.
 - `yoroi-classic/trezor-suite` is the active fork for Trezor Connect packages;
   the archived `trezor/connect` repository is not the target for new work.
 - The Trezor CML migration path runs through
@@ -86,3 +94,19 @@
   security-sensitive code, or public APIs.
 - Verify review-bot claims before changing code.
 - Report checks that were run and checks that could not be run.
+- For integration migrations, verify both sides of each boundary: install the
+  exact bridge/API revision from a clean lockfile, check its exported API,
+  exercise client requests against the server contract, and run the relevant
+  package and platform builds. Jest mocks alone do not validate native CML
+  bindings, package exports, autolinking, or client/server compatibility.
+- Read failed CI job logs and identify the failing step before changing code.
+  Some checks scan an entire package or repository, so compare failures with
+  the base branch and format/fix the files actually in scope rather than
+  assuming a passing unit suite covers the check.
+- Before opening a PR for multi-repository work, inspect existing open PRs in
+  every affected repository, including review threads and all bot findings.
+  Treat non-blocking findings as items to verify, not as automatic dismissals.
+  Prefer additive follow-up commits on the existing PR, and verify a bridge or
+  package commit exists on its remote before pinning it in a consumer.
+- Do not manually trigger review bots unless requested. Keep PR text factual
+  and concise; do not add status narration or statements about awaiting review.
