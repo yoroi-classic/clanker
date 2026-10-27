@@ -62,3 +62,7 @@
 	path = repos/trezor-suite
 	url = git@github.com:yoroi-classic/trezor-suite.git
 	branch = develop
+[submodule "repos/infrastructure"]
+	path = repos/infrastructure
+	url = git@github.com:yoroi-classic/infrastructure.git
+	branch = main
