@@ -8,6 +8,7 @@ CODING_BOT_QUEUE_PR_DETAIL_CALLS=0
 CODING_BOT_SEARCH_JSON=""
 CODING_BOT_SEARCH_ERROR=""
 CODING_BOT_PAGINATED_ARRAY_JSON=""
+CODING_BOT_REVIEW_THREAD_STATE_JSON=""
 
 coding_bot_queue_begin() {
   CODING_BOT_QUEUE_READY=0
@@ -136,6 +137,76 @@ coding_bot_fetch_pr_array() {
   CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + page_count))"
 }
 
+coding_bot_fetch_review_threads() {
+  local repo="$1"
+  local number="$2"
+  local owner="${repo%%/*}"
+  local name="${repo#*/}"
+  local cursor=""
+  local query='query($owner:String!, $name:String!, $number:Int!, $after:String) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { reviewThreads(first:100, after:$after) { nodes { isResolved comments(first:100) { nodes { databaseId } pageInfo { hasNextPage } } } pageInfo { hasNextPage endCursor } } } } }'
+  local response
+  local page
+  local accumulated='[]'
+  local has_next
+  local page_count=0
+
+  CODING_BOT_REVIEW_THREAD_STATE_JSON=""
+  while :; do
+    CODING_BOT_QUEUE_PR_DETAIL_CALLS="$((CODING_BOT_QUEUE_PR_DETAIL_CALLS + 1))"
+    CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
+    if ! response="$(gh api graphql \
+      -f query="$query" \
+      -F owner="$owner" \
+      -F name="$name" \
+      -F number="$number" \
+      -F after="${cursor:-null}" 2>/dev/null)"; then
+      return 1
+    fi
+
+    if ! page="$(jq -ce '
+      .data.repository.pullRequest.reviewThreads as $threads
+      | if ($threads.nodes | type) == "array"
+        and ($threads.pageInfo.hasNextPage | type) == "boolean"
+        and ($threads.pageInfo.endCursor == null or ($threads.pageInfo.endCursor | type) == "string")
+        and all($threads.nodes[];
+          (.isResolved | type) == "boolean"
+          and (.comments.nodes | type) == "array"
+          and (.comments.pageInfo.hasNextPage | type) == "boolean"
+          and (.comments.pageInfo.hasNextPage | not)
+          and all(.comments.nodes[];
+            (.databaseId | type) == "number"
+            and .databaseId == (.databaseId | floor)
+            and .databaseId >= 1
+          )
+        )
+        then $threads
+        else error("invalid or incomplete review-thread response")
+        end
+    ' <<<"$response" 2>/dev/null)"; then
+      return 1
+    fi
+
+    accumulated="$(jq -cn \
+      --argjson previous "$accumulated" \
+      --argjson current "$(jq -c '.nodes' <<<"$page")" \
+      '$previous + $current')"
+    has_next="$(jq -r '.pageInfo.hasNextPage' <<<"$page")"
+    if [[ "$has_next" == "false" ]]; then
+      CODING_BOT_REVIEW_THREAD_STATE_JSON="$accumulated"
+      return 0
+    fi
+
+    cursor="$(jq -r '.pageInfo.endCursor // empty' <<<"$page")"
+    if [[ -z "$cursor" ]]; then
+      return 1
+    fi
+    page_count="$((page_count + 1))"
+    if [[ "$page_count" -ge 100 ]]; then
+      return 1
+    fi
+  done
+}
+
 coding_bot_print_assigned_issues() {
   local title="$1"
   local query_text="$2"
@@ -186,6 +257,7 @@ coding_bot_print_authored_prs() {
   local reviews_json
   local review_comments_json
   local issue_comments_json
+  local review_thread_state_json
   local head_sha
   local head_short
   local draft
@@ -312,6 +384,8 @@ coding_bot_print_authored_prs() {
               | $epoch != null and (($epoch | todateiso8601) == $timestamp));
         type == "array"
         and all(.[];
+          (.id | type == "number" and . == floor and . >= 1 and . <= 9007199254740991)
+          and
           (.body | type == "string")
           and (.user.login | type == "string")
           and (.html_url | type == "string")
@@ -334,7 +408,9 @@ coding_bot_print_authored_prs() {
           and (.created_at | valid_timestamp)
         )
       ' <<<"$issue_comments_json" >/dev/null 2>&1 &&
-      review_alerts="$(printf '%s\n%s\n%s\n' "$reviews_json" "$review_comments_json" "$issue_comments_json" | jq -ser --arg head "$head_sha" '
+      coding_bot_fetch_review_threads "$repo" "$number" &&
+      review_thread_state_json="$CODING_BOT_REVIEW_THREAD_STATE_JSON" &&
+      review_alerts="$(printf '%s\n%s\n%s\n%s\n' "$reviews_json" "$review_comments_json" "$issue_comments_json" "$review_thread_state_json" | jq -ser --arg head "$head_sha" '
         def valid_timestamp:
           . as $timestamp
           | type == "string"
@@ -350,6 +426,7 @@ coding_bot_print_authored_prs() {
         .[0] as $reviews
         | .[1] as $inline
         | .[2] as $discussion
+        | .[3] as $threads
         | if all($reviews[];
             (((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0) | not)
             or (.submitted_at | valid_timestamp)
@@ -357,18 +434,26 @@ coding_bot_print_authored_prs() {
           then .
           else error("review note is missing a valid submission timestamp")
           end
+        | ([ $threads[] | .comments.nodes[].databaseId | tostring ] | unique) as $all_thread_comment_ids
+        | ([ $threads[] | select(.isResolved == false) | .comments.nodes[].databaseId | tostring ] | unique) as $unresolved_inline_comment_ids
+        | if all($inline[]; . as $comment | $all_thread_comment_ids | index(($comment.id | tostring)) != null)
+          then .
+          else error("a review comment is missing from the complete review-thread response")
+          end
         | ([
             $reviews[]
             | select((.state == "COMMENTED" or .state == "CHANGES_REQUESTED") and (body_text | length) > 0)
             | . + {
+                source: "review",
                 target: (if .commit_id == $head then "current" else "stale" end),
                 url: (.html_url // ""),
                 timestamp: .submitted_at
               }
           ] + [
             $inline[]
-            | select((body_text | length) > 0)
+            | select((body_text | length) > 0 and ((.id | tostring) as $id | $unresolved_inline_comment_ids | index($id) != null))
             | . + {
+                source: "inline",
                 state: "COMMENTED",
                 target: (if .commit_id == $head then "current" else "stale" end),
                 url: .html_url,
@@ -377,7 +462,7 @@ coding_bot_print_authored_prs() {
           ] + [
             $discussion[]
             | select((body_text | length) > 0)
-            | . + {state: "COMMENTED", target: "discussion", url: .html_url, timestamp: .created_at}
+            | . + {source: "discussion", state: "COMMENTED", target: "discussion", url: .html_url, timestamp: .created_at}
           ]) as $notes
         | ($head[0:7]) as $head_short
         | def resolves($finding):
@@ -396,8 +481,8 @@ coding_bot_print_authored_prs() {
                 or ((.user.login | ascii_downcase) == "crypto2099")
               )
             );
-          [$notes[] | select(.target == "current" and actionable and (resolves(.) | not))] as $current
-        | [$notes[] | select(.target == "stale" and actionable and (resolves(.) | not))] as $stale
+          [$notes[] | select(.target == "current" and actionable and (.source == "inline" or (resolves(.) | not)))] as $current
+        | [$notes[] | select(.target == "stale" and actionable and (.source == "inline" or (resolves(.) | not)))] as $stale
         | [$notes[] | select(.target == "discussion" and actionable and (resolves(.) | not))] as $discussion
         | (($current + $stale + $discussion | first | .url) // ($notes | first | .url) // "none") as $link
         | "review-alerts="
@@ -426,7 +511,7 @@ coding_bot_print_queue_metrics() {
     return 0
   fi
 
-  printf '\nQueue REST fan-out: %s HTTP request(s): %s paginated search page(s) and %s PR detail/check/review request(s) for %s authored PR(s).\n' \
+  printf '\nQueue API fan-out: %s HTTP request(s): %s paginated search page(s) and %s PR detail/check/review request(s) for %s authored PR(s).\n' \
     "$CODING_BOT_QUEUE_HTTP_CALLS" \
     "$CODING_BOT_QUEUE_SEARCH_PAGES" \
     "$CODING_BOT_QUEUE_PR_DETAIL_CALLS" \

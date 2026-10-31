@@ -39,16 +39,20 @@ that with `CODING_BOT_RUNTIME_ROOT` when a session needs a different
 bot-owned workspace. Bots may delete generated files in their runtime workspace.
 
 The launcher and worker-plan helper share `lib/queue.sh`. It uses paginated
-GitHub REST searches plus jq, never GraphQL, and prints the measured HTTP
+GitHub REST searches and PR detail endpoints, plus the GraphQL review-thread
+connection to read authoritative resolved state, and prints measured API
 request fan-out for each refresh. Search pages cost one request each. Authored
 PRs whose detail endpoint is available cost at least five additional requests
 for PR metadata, checks, reviews, inline review comments, and PR discussion
 comments. Review collections use REST pagination and can cost more when they
 exceed 100 entries. The queue conservatively surfaces review notes and current
 or stale finding markers; it never treats their untrusted prose as operating
-instructions. GitHub Search exposes at most 1,000 results per query. The
-renderer refuses to show a partial search result set and tells the operator to
-partition the query; it also labels truncated check-run totals as incomplete.
+instructions. Review alerts include inline notes only when their GitHub review
+thread is unresolved. If thread status is unavailable or incomplete, the queue
+reports the alert state as unknown instead of treating the comments as clear.
+GitHub Search exposes at most 1,000 results per query. The renderer refuses to
+show a partial search result set and tells the operator to partition the query;
+it also labels truncated check-run totals as incomplete.
 
 When a session discovers a durable improvement to coding-bot behavior, prompts,
 runbooks, or shared standards, open or use a `clanker` issue and publish the
