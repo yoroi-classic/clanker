@@ -39,12 +39,57 @@ printf '%s\n' "$*" >>"$FAKE_GH_CALL_LOG"
 mode="${FAKE_GH_MODE:-normal}"
 
 if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
+  if [[ "${FAKE_GH_AUTH_STATUS_FAIL:-0}" == "1" ]]; then
+    exit 1
+  fi
+  exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  if [[ "$mode" == "review_thread_failure" ]]; then
+    exit 1
+  fi
+  if [[ "$mode" == "malformed_review_threads" ]]; then
+    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}}}}\n'
+    exit 0
+  fi
+  if [[ "$mode" == "incomplete_thread_comments" ]]; then
+    printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":true}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+    exit 0
+  fi
+  if [[ "$mode" == "orphan_rest_comment" ]]; then
+    printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+    exit 0
+  fi
+  if [[ "$mode" == "review_threads_paginated" ]]; then
+    if [[ "$*" == *"-F after=cursor-1"* ]]; then
+      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":124}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+    else
+      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}'
+    fi
+    exit 0
+  fi
+  if [[ "$mode" == "review_inline" || "$mode" == "review_inline_resolved" || "$mode" == "invalid_inline_timestamp" ]]; then
+    if [[ "$mode" == "review_inline_resolved" ]]; then
+      resolved=true
+    else
+      resolved=false
+    fi
+    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":%s,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' "$resolved"
+    exit 0
+  fi
+  printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
   exit 0
 fi
 
 if [[ "${1:-}" != "api" ]]; then
   echo "fake gh: unexpected command: $*" >&2
   exit 98
+fi
+
+if [[ "$mode" == "api_failure" ]]; then
+  echo "fake gh: API unavailable" >&2
+  exit 1
 fi
 
 if [[ "$*" == *"search/issues"* && "$*" == *"is:pr"* ]]; then
@@ -173,13 +218,19 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
     printf '{"message":"unexpected success body"}\n'
     exit 0
   fi
-  if [[ "$mode" == "review_inline" || "$mode" == "invalid_inline_timestamp" ]]; then
+  if [[ "$mode" == "review_inline" || "$mode" == "review_inline_resolved" || "$mode" == "invalid_inline_timestamp" ]]; then
     if [[ "$mode" == "invalid_inline_timestamp" ]]; then
       timestamp="2026-02-31T00:00:00Z"
     else
       timestamp="2026-01-01T00:00:00Z"
     fi
-    printf '{"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"%s","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n' "$timestamp"
+    printf '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"%s","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n' "$timestamp"
+  elif [[ "$mode" == "incomplete_thread_comments" ]]; then
+    printf '%s\n' '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P1: comment past the first 100 replies","html_url":"https://example.invalid/review/incomplete-thread"}'
+  elif [[ "$mode" == "orphan_rest_comment" ]]; then
+    printf '%s\n' '{"id":125,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P1: comment missing from thread data","html_url":"https://example.invalid/review/orphan-comment"}'
+  elif [[ "$mode" == "review_threads_paginated" ]]; then
+    printf '%s\n' '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: resolved page-one finding","html_url":"https://example.invalid/review/inline-page-1"}' '{"id":124,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: unresolved page-two finding","html_url":"https://example.invalid/review/inline-page-2"}'
   fi
   exit 0
 fi
@@ -256,7 +307,7 @@ test_start_and_shared_paginated_queue() {
   assert_contains "$start_output" "## standards/review.md"
   assert_contains "$start_output" "org/first#1: Unavailable details [details=unavailable]"
   assert_contains "$start_output" "org/work#3: Assigned work"
-  assert_contains "$start_output" "Queue REST fan-out: 9 HTTP request(s)"
+  assert_contains "$start_output" "Queue API fan-out: 10 HTTP request(s)"
 
   PATH="$fake_bin:$PATH" \
     FAKE_GH_CALL_LOG="$calls" \
@@ -275,10 +326,11 @@ test_start_and_shared_paginated_queue() {
   assert_contains "$first" "org/first#1: Unavailable details [details=unavailable]"
   assert_contains "$first" "org/second#2: Stable second PR [head=abcdef1, draft=false, requested=human, reviews=human:APPROVED, review-alerts=0 current/0 stale/0 discussion, notes=0, link=none, checks=0 fail/1 pending/2 total]"
   assert_contains "$first" "org/work#3: Assigned work"
-  assert_contains "$first" "Queue REST fan-out: 9 HTTP request(s): 3 paginated search page(s) and 6 PR detail/check/review request(s) for 2 authored PR(s)."
+  assert_contains "$first" "Queue API fan-out: 10 HTTP request(s): 3 paginated search page(s) and 7 PR detail/check/review request(s) for 2 authored PR(s)."
   assert_contains "$calls" "api --paginate -X GET search/issues"
   assert_contains "$calls" "api --paginate -X GET repos/org/second/pulls/2/comments -f per_page=100 --jq .[]"
   assert_contains "$calls" "api --paginate -X GET repos/org/second/issues/2/comments -f per_page=100 --jq .[]"
+  assert_contains "$calls" "api graphql"
 
   "$BOT_DIR/bin/worker-plan.sh" --no-queue 1 4 >"$first"
   assert_contains "$first" 'Stop or do not replace `3` worker(s).'
@@ -332,6 +384,27 @@ test_review_alert_classification() {
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline"
 
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_inline_resolved CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=0 current/0 stale/0 discussion, notes=0, link=none"
+
+  PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_threads_paginated CODING_BOT_ORG=org \
+    "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline-page-2"
+  assert_contains "$calls" "after=cursor-1"
+
+  for mode in review_thread_failure malformed_review_threads; do
+    PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE="$mode" CODING_BOT_ORG=org \
+      "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+    assert_contains "$output" "review-alerts=unknown"
+  done
+
+  for mode in incomplete_thread_comments orphan_rest_comment; do
+    PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE="$mode" CODING_BOT_ORG=org \
+      "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+    assert_contains "$output" "review-alerts=unknown"
+  done
+
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_discussion CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
   assert_contains "$output" "review-alerts=0 current/0 stale/1 discussion, notes=1, link=https://example.invalid/review/discussion"
@@ -349,29 +422,45 @@ test_review_alert_classification() {
   assert_contains "$output" "review-alerts=0 current/1 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
 }
 
-test_unauthenticated_queue_fallback() {
-  local fake_bin="$TMP_ROOT/unauthenticated-bin"
-  local output="$TMP_ROOT/unauthenticated.out"
+test_api_queue_does_not_depend_on_auth_status_probe() {
+  local fake_bin="$TMP_ROOT/status-probe-bin"
+  local calls="$TMP_ROOT/status-probe-calls.log"
+  local output="$TMP_ROOT/status-probe.out"
 
-  mkdir -p "$fake_bin"
-  cat >"$fake_bin/gh" <<'WRAPPER'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
-  exit 1
-fi
-
-echo "fake gh: unexpected command: $*" >&2
-exit 98
-WRAPPER
-  chmod +x "$fake_bin/gh"
-
+  write_paginated_gh "$fake_bin" "$calls"
   PATH="$fake_bin:$PATH" \
-    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/unauthenticated-runtime" \
+    FAKE_GH_CALL_LOG="$calls" \
+    FAKE_GH_AUTH_STATUS_FAIL=1 \
+    CODING_BOT_ORG=org \
+    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/status-probe-runtime" \
     CODING_BOT_SKIP_UPDATE_CHECK=1 \
     "$BOT_DIR/bin/start.sh" >"$output"
-  assert_contains "$output" "GitHub CLI is not authenticated"
+
+  assert_not_contains "$calls" "auth status"
+  assert_contains "$calls" "api --paginate -X GET search/issues"
+  assert_contains "$output" "org/work#3: Assigned work"
+  assert_contains "$output" "org/second#2: Stable second PR"
+  assert_not_contains "$output" "GitHub CLI is not authenticated"
+}
+
+test_api_failure_reported_after_status_probe_failure() {
+  local fake_bin="$TMP_ROOT/api-failure-bin"
+  local calls="$TMP_ROOT/api-failure-calls.log"
+  local output="$TMP_ROOT/api-failure.out"
+
+  write_paginated_gh "$fake_bin" "$calls"
+  PATH="$fake_bin:$PATH" \
+    FAKE_GH_CALL_LOG="$calls" \
+    FAKE_GH_AUTH_STATUS_FAIL=1 \
+    FAKE_GH_MODE=api_failure \
+    CODING_BOT_ORG=org \
+    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/api-failure-runtime" \
+    CODING_BOT_SKIP_UPDATE_CHECK=1 \
+    "$BOT_DIR/bin/start.sh" >"$output"
+
+  assert_contains "$output" "Failed to fetch assigned issues: GitHub Search request failed."
+  assert_contains "$output" "Failed to fetch authored pull requests: GitHub Search request failed."
+  assert_contains "$calls" "api --paginate -X GET search/issues"
 }
 
 test_queue_response_validation_and_caps() {
@@ -410,7 +499,7 @@ test_queue_response_validation_and_caps() {
         ;;
       partial_review_failure)
         assert_contains "$output" "reviews=unknown"
-        assert_contains "$output" "Queue REST fan-out: 8 HTTP request(s): 3 paginated search page(s) and 5 PR detail/check/review request(s) for 2 authored PR(s)."
+        assert_contains "$output" "Queue API fan-out: 8 HTTP request(s): 3 paginated search page(s) and 5 PR detail/check/review request(s) for 2 authored PR(s)."
         ;;
       malformed_review_comments|malformed_issue_comments|missing_review_timestamp|invalid_review_timestamp|invalid_inline_timestamp|invalid_discussion_timestamp)
         assert_contains "$output" "review-alerts=unknown"
@@ -573,7 +662,8 @@ test_workspace_status_json_and_stability() {
 
 test_start_and_shared_paginated_queue
 test_review_alert_classification
-test_unauthenticated_queue_fallback
+test_api_queue_does_not_depend_on_auth_status_probe
+test_api_failure_reported_after_status_probe_failure
 test_queue_response_validation_and_caps
 test_workspace_status_json_and_stability
 
