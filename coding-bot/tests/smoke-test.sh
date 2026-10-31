@@ -39,12 +39,20 @@ printf '%s\n' "$*" >>"$FAKE_GH_CALL_LOG"
 mode="${FAKE_GH_MODE:-normal}"
 
 if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
+  if [[ "${FAKE_GH_AUTH_STATUS_FAIL:-0}" == "1" ]]; then
+    exit 1
+  fi
   exit 0
 fi
 
 if [[ "${1:-}" != "api" ]]; then
   echo "fake gh: unexpected command: $*" >&2
   exit 98
+fi
+
+if [[ "$mode" == "api_failure" ]]; then
+  echo "fake gh: API unavailable" >&2
+  exit 1
 fi
 
 if [[ "$*" == *"search/issues"* && "$*" == *"is:pr"* ]]; then
@@ -349,29 +357,45 @@ test_review_alert_classification() {
   assert_contains "$output" "review-alerts=0 current/1 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
 }
 
-test_unauthenticated_queue_fallback() {
-  local fake_bin="$TMP_ROOT/unauthenticated-bin"
-  local output="$TMP_ROOT/unauthenticated.out"
+test_status_probe_failure_does_not_suppress_api_queue() {
+  local fake_bin="$TMP_ROOT/status-probe-bin"
+  local calls="$TMP_ROOT/status-probe-calls.log"
+  local output="$TMP_ROOT/status-probe.out"
 
-  mkdir -p "$fake_bin"
-  cat >"$fake_bin/gh" <<'WRAPPER'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
-  exit 1
-fi
-
-echo "fake gh: unexpected command: $*" >&2
-exit 98
-WRAPPER
-  chmod +x "$fake_bin/gh"
-
+  write_paginated_gh "$fake_bin" "$calls"
   PATH="$fake_bin:$PATH" \
-    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/unauthenticated-runtime" \
+    FAKE_GH_CALL_LOG="$calls" \
+    FAKE_GH_AUTH_STATUS_FAIL=1 \
+    CODING_BOT_ORG=org \
+    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/status-probe-runtime" \
     CODING_BOT_SKIP_UPDATE_CHECK=1 \
     "$BOT_DIR/bin/start.sh" >"$output"
-  assert_contains "$output" "GitHub CLI is not authenticated"
+
+  assert_contains "$calls" "auth status"
+  assert_contains "$calls" "api --paginate -X GET search/issues"
+  assert_contains "$output" "org/work#3: Assigned work"
+  assert_contains "$output" "org/second#2: Stable second PR"
+  assert_not_contains "$output" "GitHub CLI is not authenticated"
+}
+
+test_api_failure_reported_after_status_probe_failure() {
+  local fake_bin="$TMP_ROOT/api-failure-bin"
+  local calls="$TMP_ROOT/api-failure-calls.log"
+  local output="$TMP_ROOT/api-failure.out"
+
+  write_paginated_gh "$fake_bin" "$calls"
+  PATH="$fake_bin:$PATH" \
+    FAKE_GH_CALL_LOG="$calls" \
+    FAKE_GH_AUTH_STATUS_FAIL=1 \
+    FAKE_GH_MODE=api_failure \
+    CODING_BOT_ORG=org \
+    CODING_BOT_RUNTIME_ROOT="$TMP_ROOT/api-failure-runtime" \
+    CODING_BOT_SKIP_UPDATE_CHECK=1 \
+    "$BOT_DIR/bin/start.sh" >"$output"
+
+  assert_contains "$output" "Failed to fetch assigned issues: GitHub Search request failed."
+  assert_contains "$output" "Failed to fetch authored pull requests: GitHub Search request failed."
+  assert_contains "$calls" "api --paginate -X GET search/issues"
 }
 
 test_queue_response_validation_and_caps() {
@@ -573,7 +597,8 @@ test_workspace_status_json_and_stability() {
 
 test_start_and_shared_paginated_queue
 test_review_alert_classification
-test_unauthenticated_queue_fallback
+test_status_probe_failure_does_not_suppress_api_queue
+test_api_failure_reported_after_status_probe_failure
 test_queue_response_validation_and_caps
 test_workspace_status_json_and_stability
 

@@ -21,19 +21,15 @@ coding_bot_queue_begin() {
     return 0
   fi
 
-  if ! gh auth status >/dev/null 2>&1; then
-    return 0
-  fi
+  # This probe is diagnostic only: it can fail even when `gh api` can reach
+  # GitHub. Let the actual queue requests determine API availability.
+  gh auth status >/dev/null 2>&1 || true
 
   CODING_BOT_QUEUE_READY=1
 }
 
 coding_bot_queue_unavailable_message() {
-  if ! command -v gh >/dev/null 2>&1; then
-    printf 'GitHub CLI is unavailable; refresh the queue manually.\n'
-  else
-    printf 'GitHub CLI is not authenticated; refresh the queue manually.\n'
-  fi
+  printf 'GitHub CLI is unavailable; refresh the queue manually.\n'
 }
 
 coding_bot_fetch_search() {
