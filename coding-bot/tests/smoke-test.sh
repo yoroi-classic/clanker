@@ -53,6 +53,14 @@ if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
     printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}}}}\n'
     exit 0
   fi
+  if [[ "$mode" == "incomplete_thread_comments" ]]; then
+    printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":true}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+    exit 0
+  fi
+  if [[ "$mode" == "orphan_rest_comment" ]]; then
+    printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+    exit 0
+  fi
   if [[ "$mode" == "review_threads_paginated" ]]; then
     if [[ "$*" == *"-F after=cursor-1"* ]]; then
       printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":124}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
@@ -217,6 +225,10 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
       timestamp="2026-01-01T00:00:00Z"
     fi
     printf '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"%s","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n' "$timestamp"
+  elif [[ "$mode" == "incomplete_thread_comments" ]]; then
+    printf '%s\n' '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P1: comment past the first 100 replies","html_url":"https://example.invalid/review/incomplete-thread"}'
+  elif [[ "$mode" == "orphan_rest_comment" ]]; then
+    printf '%s\n' '{"id":125,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P1: comment missing from thread data","html_url":"https://example.invalid/review/orphan-comment"}'
   elif [[ "$mode" == "review_threads_paginated" ]]; then
     printf '%s\n' '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: resolved page-one finding","html_url":"https://example.invalid/review/inline-page-1"}' '{"id":124,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: unresolved page-two finding","html_url":"https://example.invalid/review/inline-page-2"}'
   fi
@@ -382,6 +394,12 @@ test_review_alert_classification() {
   assert_contains "$calls" "after=cursor-1"
 
   for mode in review_thread_failure malformed_review_threads; do
+    PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE="$mode" CODING_BOT_ORG=org \
+      "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
+    assert_contains "$output" "review-alerts=unknown"
+  done
+
+  for mode in incomplete_thread_comments orphan_rest_comment; do
     PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE="$mode" CODING_BOT_ORG=org \
       "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
     assert_contains "$output" "review-alerts=unknown"
