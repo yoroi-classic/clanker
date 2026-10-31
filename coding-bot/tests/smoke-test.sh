@@ -357,7 +357,7 @@ test_review_alert_classification() {
   assert_contains "$output" "review-alerts=0 current/1 stale/0 discussion, notes=2, link=https://example.invalid/review/stale"
 }
 
-test_status_probe_failure_does_not_suppress_api_queue() {
+test_api_queue_does_not_depend_on_auth_status_probe() {
   local fake_bin="$TMP_ROOT/status-probe-bin"
   local calls="$TMP_ROOT/status-probe-calls.log"
   local output="$TMP_ROOT/status-probe.out"
@@ -371,7 +371,7 @@ test_status_probe_failure_does_not_suppress_api_queue() {
     CODING_BOT_SKIP_UPDATE_CHECK=1 \
     "$BOT_DIR/bin/start.sh" >"$output"
 
-  assert_contains "$calls" "auth status"
+  assert_not_contains "$calls" "auth status"
   assert_contains "$calls" "api --paginate -X GET search/issues"
   assert_contains "$output" "org/work#3: Assigned work"
   assert_contains "$output" "org/second#2: Stable second PR"
@@ -597,7 +597,7 @@ test_workspace_status_json_and_stability() {
 
 test_start_and_shared_paginated_queue
 test_review_alert_classification
-test_status_probe_failure_does_not_suppress_api_queue
+test_api_queue_does_not_depend_on_auth_status_probe
 test_api_failure_reported_after_status_probe_failure
 test_queue_response_validation_and_caps
 test_workspace_status_json_and_stability
