@@ -76,6 +76,7 @@ query='query($owner:String!, $name:String!, $number:Int!, $after:String) {
       }
     }
   }
+}
 '
 cursor=''
 while :; do
@@ -88,8 +89,18 @@ while :; do
     .data.repository.pullRequest.reviewThreads as $threads
     | ($threads.nodes | type) == "array"
       and ($threads.pageInfo.hasNextPage | type) == "boolean"
-      and all($threads.nodes[]; (.comments.pageInfo.hasNextPage | type) == "boolean"
-        and (.comments.pageInfo.hasNextPage | not))
+      and ($threads.pageInfo.endCursor == null or ($threads.pageInfo.endCursor | type) == "string")
+      and all($threads.nodes[];
+        (.isResolved | type) == "boolean"
+        and (.comments.nodes | type) == "array"
+        and (.comments.pageInfo.hasNextPage | type) == "boolean"
+        and (.comments.pageInfo.hasNextPage | not)
+        and all(.comments.nodes[];
+          (.databaseId | type) == "number"
+          and .databaseId == (.databaseId | floor)
+          and .databaseId >= 1
+        )
+      )
   ' <<<"$response" >/dev/null; then
     echo 'review alerts unknown: malformed or incomplete review-thread response' >&2
     exit 1
