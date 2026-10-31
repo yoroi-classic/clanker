@@ -156,8 +156,8 @@ coding_bot_fetch_review_threads() {
     CODING_BOT_QUEUE_HTTP_CALLS="$((CODING_BOT_QUEUE_HTTP_CALLS + 1))"
     if ! response="$(gh api graphql \
       -f query="$query" \
-      -F owner="$owner" \
-      -F name="$name" \
+      -f owner="$owner" \
+      -f name="$name" \
       -F number="$number" \
       -F after="${cursor:-null}" 2>/dev/null)"; then
       return 1

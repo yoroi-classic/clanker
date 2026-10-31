@@ -55,9 +55,9 @@ if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
   fi
   if [[ "$mode" == "review_threads_paginated" ]]; then
     if [[ "$*" == *"-F after=cursor-1"* ]]; then
-      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"comments":{"nodes":[{"databaseId":124}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":124}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
     else
-      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}'
+      printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"comments":{"nodes":[{"databaseId":123}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}'
     fi
     exit 0
   fi
@@ -218,7 +218,7 @@ if [[ "$*" == *"repos/org/second/pulls/2/comments"* ]]; then
     fi
     printf '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"%s","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n' "$timestamp"
   elif [[ "$mode" == "review_threads_paginated" ]]; then
-    printf '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: inline finding","html_url":"https://example.invalid/review/inline"}\n'
+    printf '%s\n' '{"id":123,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: resolved page-one finding","html_url":"https://example.invalid/review/inline-page-1"}' '{"id":124,"user":{"login":"ember-review[bot]"},"commit_id":"abcdef1234567890","created_at":"2026-01-01T00:00:00Z","body":"P2: unresolved page-two finding","html_url":"https://example.invalid/review/inline-page-2"}'
   fi
   exit 0
 fi
@@ -378,7 +378,7 @@ test_review_alert_classification() {
 
   PATH="$fake_bin:$PATH" FAKE_GH_CALL_LOG="$calls" FAKE_GH_MODE=review_threads_paginated CODING_BOT_ORG=org \
     "$BOT_DIR/bin/worker-plan.sh" 1 1 >"$output"
-  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline"
+  assert_contains "$output" "review-alerts=1 current/0 stale/0 discussion, notes=1, link=https://example.invalid/review/inline-page-2"
   assert_contains "$calls" "after=cursor-1"
 
   for mode in review_thread_failure malformed_review_threads; do
